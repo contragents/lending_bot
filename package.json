@@ -1,0 +1,28 @@
+{
+  "name": "lending_bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/contragents/lending_bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/contragents/lending_bot/issues"
+  },
+  "homepage": "https://github.com/contragents/lending_bot#readme",
+  "description": "",
+  "dependencies": {
+    "@lifi/sdk": "^3.16.3",
+    "dotenv": "^17.4.2",
+    "ethers": "6.16.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}

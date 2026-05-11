@@ -9,37 +9,45 @@ const getEnv = (key: string): string => {
     return value;
 };
 
+// Описываем структуру настроек для одной сети
+interface NetworkConfig {
+    COMPTROLLER: string;
+}
+
+// Описываем структуру всего блока Moonwell
+interface MoonwellConfig {
+    [key: string]: NetworkConfig | string[] | any; // Разрешаем динамические ключи
+    BASE: NetworkConfig;
+    OPT: NetworkConfig;
+    ABI: string[];
+}
+
 export const CONFIG = {
-    // Рабочая сеть
-    CHAIN: 'BASE', // OPT
-    // Настройки сетей
+    CHAIN: 'BASE' as 'BASE' | 'OPT', // Явно ограничиваем варианты
     RPC: {
         OPT: getEnv('OPTIMISM_RPC_URL'),
         BASE: getEnv('BASE_RPC_URL'),
     },
-
-    // Адреса контрактов (нормализованные через getAddress)
     MOONWELL: {
-        // Здесь мы явно говорим, что ключами могут быть любые строки
         BASE: {
-            COMPTROLLER: getAddress("0xfBb211A5396424b2D3929156708854D7474f0221"), // Base
+            COMPTROLLER: getAddress("0xfBb21d0380beE3312B33c4353c8936a0F13EF26C"),
         },
         OPT: {
-            COMPTROLLER: getAddress('0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9'), // Optimism
+            COMPTROLLER: getAddress("0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9"),
         },
         ABI: [
             "function getAccountLiquidity(address account) view returns (uint, uint, uint)",
             "function getAllMarkets() view returns (address[])"
         ]
-    },
+    } as MoonwellConfig, // Применяем интерфейс здесь
 
     // Параметры для API
     ZEROX_API_KEY: getEnv('ZEROX_API_KEY'),
-
     // Параметры бота
     INTEGRATOR_ID: 'lifi', // или ваш ID
     SLIPPAGE: 0.005,      // 0.5%
 };
+
 
 
 // Адрес Comptroller Moonwell на Base

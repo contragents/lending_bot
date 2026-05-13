@@ -30,9 +30,7 @@ npm ci
 ## ⚙️ Конфигурация (.env)
 Создайте файл .env в корне проекта:
 
-BASE_RPC_URL=https://base.org
-OPTIMISM_RPC_URL=https://optimism.io
-ZEROX_API_KEY=your_0x_api_key_here
+см. .env.example
 # PRIVATE_KEY не используется в открытом виде!
 
 ## 🚀 Основной функционал

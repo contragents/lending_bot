@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+/.idea/.gitignore
+/.idea/deployment.xml
+/.idea/lending_bot.iml
+/.idea/modules.xml
+/package-lock.json
+/.idea/php.xml
+/.idea/vcs.xml

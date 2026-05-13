@@ -9,51 +9,93 @@ const getEnv = (key: string): string => {
     return value;
 };
 
-// Описываем структуру настроек для одной сети
-interface NetworkConfig {
+// Задаем список всех поддерживаемых токенов
+type SupportedToken = 'USDC' | 'OP' | 'ETH' | 'WETH' | 'cbBTC';
+
+// Описываем структуру для токенов в конкретной сети
+type TokenList = {
+    [K in SupportedToken]?: string;
+};
+
+// Создаем массив сетей в рантайме (as const обязателен)
+const CHAINS = ['BASE', 'OPT'] as const;
+
+// 2. Генерируем тип 'BASE' | 'OPT' прямо из массива
+type ChainType = typeof CHAINS[number];
+
+// Описываем структуру Moonwell
+interface MoonwellConfig {
     COMPTROLLER: string;
 }
 
-// Описываем структуру всего блока Moonwell
-interface MoonwellConfig {
-    [key: string]: NetworkConfig | string[] | any; // Разрешаем динамические ключи
-    BASE: NetworkConfig;
-    OPT: NetworkConfig;
-    ABI: string[];
+// Общий интерфейс для настроек конкретной сети
+interface NetworkSettings {
+    ID: string;
+    RPC_URL: string;
+    TOKENS: TokenList;
+    MOONWELL: MoonwellConfig;
 }
 
-export const CONFIG = {
-    CHAIN: 'BASE' as 'BASE' | 'OPT', // Явно ограничиваем варианты
-    RPC: {
-        OPT: getEnv('OPTIMISM_RPC_URL'),
-        BASE: getEnv('BASE_RPC_URL'),
+// Типизируем весь конфиг
+interface AppConfig {
+    CHAIN: ChainType; // Ограничиваем выбор сетей
+    TOKEN_DECIMALS:
+    // Делаем все токены из списка необязательными (через знак ?)
+        { [K in SupportedToken]?: number } &
+        // И жестко требуем наличие поля default
+        { default: number };
+    ZEROX_API_KEY: string;
+    SLIPPAGE: number;
+    INTEGRATOR_ID: string,
+    NETWORKS: {
+        [key in ChainType]: NetworkSettings;
+    };
+    ABI: {
+        MOONWELL: string[];
+    };
+}
+
+export const CONFIG: AppConfig = {
+    CHAIN: 'OPT', // 'BASE', // OPT
+    TOKEN_DECIMALS: {
+        USDC: 6,
+        default:18,
     },
-    MOONWELL: {
+    NETWORKS: {
         BASE: {
-            COMPTROLLER: getAddress("0xfBb21d0380beE3312B33c4353c8936a0F13EF26C"),
+
+            ID: "8453",
+            RPC_URL: getEnv('BASE_RPC_URL'),
+            TOKENS: {
+                WETH: getAddress("0x4200000000000000000000000000000000000006"),
+                USDC: getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+            },
+            MOONWELL: {
+                COMPTROLLER: getAddress("0xfBb21d0380beE3312B33c4353c8936a0F13EF26C"),
+            }
         },
         OPT: {
-            COMPTROLLER: getAddress("0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9"),
-        },
-        ABI: [
+            ID: "10",
+            RPC_URL: getEnv('OPTIMISM_RPC_URL'),
+            TOKENS: {
+                WETH: getAddress("0x4200000000000000000000000000000000000006"),
+                USDC: getAddress("0x0b2c639c533813f4aa9d7837caf62653d097ff85"),
+                OP: getAddress("0x4200000000000000000000000000000000000042"),
+            },
+            MOONWELL: {
+                COMPTROLLER: getAddress("0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9"),
+            }
+        }
+    },
+    ABI: {
+        MOONWELL: [
             "function getAccountLiquidity(address account) view returns (uint, uint, uint)",
             "function getAllMarkets() view returns (address[])"
         ]
-    } as MoonwellConfig, // Применяем интерфейс здесь
-
+    },
     // Параметры для API
     ZEROX_API_KEY: getEnv('ZEROX_API_KEY'),
     // Параметры бота
     INTEGRATOR_ID: 'lifi', // или ваш ID
     SLIPPAGE: 0.005,      // 0.5%
 };
-
-
-
-// Адрес Comptroller Moonwell на Base
-const MOONWELL_COMPTROLLER_ADDRESS_BASE = '0xfBb21d0380beE3312B33c4353c8936a0F13EF26C';
-const MOONWELL_COMPTROLLER_ADDRESS_OPT = '0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9';
-const MOONWELL_ABI = [
-    "function getAccountLiquidity(address account) view returns (uint, uint, uint)",
-    "function getAllMarkets() view returns (address[])"
-];

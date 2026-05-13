@@ -16,7 +16,7 @@ LIFI.createConfig({
     // здесь можно добавить настройки чейнов, если нужно
 });
 
-import { withRetry } from './utils.js'; // Не забываем .js для ESM
+import {withRetry} from './utils.js'; // Не забываем .js для ESM
 
 async function getMoonwellData() {
     console.log(`--- Moonwell Status (${CONFIG.CHAIN}) ---`);
@@ -33,14 +33,66 @@ async function getMoonwellData() {
     console.log(`Shortfall (Риск): ${ethers.formatEther(shortfall)}`);
 }
 
+async function getMoonwellPositions() {
+    console.log(`--- Moonwell Assets & Liabilities (${CONFIG.CHAIN}) ---`);
+
+    const comptroller = new ethers.Contract(
+        currentNetwork.MOONWELL.COMPTROLLER,
+        CONFIG.ABI.MOONWELL,
+        provider
+    );
+
+    try {
+        // 1. Получаем адреса всех доступных рынков Moonwell в текущей сети
+        const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
+
+        for (const mTokenAddress of markets) {
+            // Создаем инстанс контракта конкретного рынка (например, mUSDC или mWETH)
+            const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, provider);
+
+            // 2. Получаем слепок аккаунта для этого рынка
+            // Возвращает: (error, баланс_mToken, баланс_займа, внутренний_курс_обмена)
+            const [error, mTokenBalance, borrowBalance, exchangeRate] =
+                await withRetry<[bigint, bigint, bigint, bigint]>(() => (mToken as any).getAccountSnapshot(WATCH_ADDRESS));
+
+            if (error !== 0n) continue;
+
+            // Если балансы нулевые, пропускаем этот токен, чтобы не спамить в консоль
+            if (mTokenBalance === 0n && borrowBalance === 0n) continue;
+
+            // Получаем тикер рынка (например, "mUSDC")
+            const mTokenSymbol = await withRetry<string>(() => (mToken as any).symbol());
+            const underlyingSymbol = mTokenSymbol.substring(1); // Отсекаем первую 'm', получаем 'USDC'
+
+            // 3. Расчет реального баланса актива (Supply Balance)
+            // mTokens имеют свой баланс, который увеличивается за счет процентов.
+            // Формула: (баланс_mToken * курс_обмена) / 1e18
+            if (mTokenBalance > 0n) {
+                const underlyingAmountWei = BigInt(mTokenBalance * exchangeRate) / ethers.parseEther("1");
+                const formattedSupply = formatUnits(underlyingAmountWei, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
+                console.log(`🟢 Снабжение (Asset)  -> ${formattedSupply} ${underlyingSymbol}`);
+            }
+
+            // 4. Расчет баланса долга (Borrow Balance)
+            if (borrowBalance > 0n) {
+                const formattedBorrow = formatUnits(borrowBalance, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
+                console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
+            }
+        }
+    } catch (err: any) {
+        console.error("Ошибка при получении позиций Moonwell:", err.message);
+    }
+}
+
+
 async function getJumperQuote() {
     console.log(`--- JUMPER (LIFI) Quote (${CONFIG.CHAIN}) ---`);
     try {
         const quoteRequest = {
             fromChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
             toChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
-            fromToken: CONFIG.NETWORKS[CONFIG.CHAIN].TOKENS[SELL_TOKEN],
-            toToken: CONFIG.NETWORKS[CONFIG.CHAIN].TOKENS[BUY_TOKEN],
+            fromToken: sellTokenAddr,
+            toToken: buyTokenAddr,
             fromAmount: '1000000000000000000', // 1 ETH
             fromAddress: WATCH_ADDRESS,
             slippage: 0.005, // 0.5%
@@ -50,13 +102,13 @@ async function getJumperQuote() {
 
         const quote = await LIFI.getQuote(quoteRequest);
         // Для USDC указываем 6 знаков
-        const formattedAmount = formatUnits(quote.estimate.toAmount, 6);
-        const formattedAmountMin = formatUnits(quote.estimate.toAmountMin, 6);
+        const formattedAmount = formatUnits(quote.estimate.toAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
+        const formattedAmountMin = formatUnits(quote.estimate.toAmountMin, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
 
         //console.dir(quote.estimate, {depth: null});
 
         console.log(`Лучший маршрут: ${quote.tool}`);
-        console.log(`Вы получите (LIFI): ${formattedAmount}/${formattedAmountMin} USDC`);
+        console.log(`Вы получите (LIFI): ${formattedAmount}/${formattedAmountMin} ${BUY_TOKEN}`);
     } catch (error) {
         console.error('Ошибка получения котировки:', error);
     }
@@ -66,14 +118,15 @@ async function getJumperQuote() {
 async function get0xQuoteV2(amountInEth: string) {
     console.log(`--- 0x API v2 Quote (CONFIG.CHAIN) ---`);
 
-    const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+    //const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
     const amountInWei = ethers.parseEther(amountInEth).toString();
 
     // Параметры согласно документации v2
+    // @ts-ignore
     const params = new URLSearchParams({
         chainId: CONFIG.NETWORKS[CONFIG.CHAIN].ID, // Optimism
-        sellToken: currentNetwork.TOKENS[SELL_TOKEN], // ETH
-        buyToken: currentNetwork.TOKENS[BUY_TOKEN],
+        sellToken: sellTokenAddr, // ETH
+        buyToken: buyTokenAddr,
         sellAmount: amountInWei,
         taker: WATCH_ADDRESS, // Адрес того, кто будет делать обмен
         slippagePercentage: CONFIG.SLIPPAGE.toString(),
@@ -102,7 +155,7 @@ async function get0xQuoteV2(amountInEth: string) {
         const data = await response.json() as any;
 
         // В v2 структура ответа может отличаться: ищите buyAmount в объекте
-        console.log(`Вы получите (0x): ${ethers.formatUnits(data.buyAmount, 6)}/${ethers.formatUnits(data.minBuyAmount, 6)} USDC`);
+        console.log(`Вы получите (0x): ${ethers.formatUnits(data.buyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])}/${ethers.formatUnits(data.minBuyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])} ${BUY_TOKEN}`);
 
         // console.dir(data, {depth: null});
 
@@ -119,11 +172,18 @@ async function get0xQuoteV2(amountInEth: string) {
 // Вызов в main():
 // await
 
-import { loadWallet } from './utils.js'; // Не забываем .js для ESM
-async function main() {
-    const wallet = await loadWallet(provider);
+import {loadWallet} from './utils.js'; // Не забываем .js для ESM
 
-    await getMoonwellData();
+const wallet = await loadWallet(provider);
+const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
+const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
+
+async function main() {
+
+    await getMoonwellData(); // Общий статус
+    await getMoonwellPositions(); // Детальный список позиций
+
     await getJumperQuote();
     get0xQuoteV2("1.0");
 }

@@ -40,11 +40,13 @@ interface NetworkSettings {
 interface AppConfig {
     CHAIN: ChainType; // Ограничиваем выбор сетей
     TOKEN_DECIMALS:
-    // Делаем все токены из списка необязательными (через знак ?)
+        // Делаем все токены из списка необязательными (через знак ?)
         { [K in SupportedToken]?: number } &
         // И жестко требуем наличие поля default
-        { default: number };
-    ZEROX_API_KEY: string;
+        { default: number } &
+        // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
+        { [key: string]: number };
+ZEROX_API_KEY: string;
     SLIPPAGE: number;
     INTEGRATOR_ID: string,
     NETWORKS: {
@@ -59,7 +61,7 @@ export const CONFIG: AppConfig = {
     CHAIN: 'OPT', // 'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
-        default:18,
+        default: 18,
     },
     NETWORKS: {
         BASE: {
@@ -90,7 +92,11 @@ export const CONFIG: AppConfig = {
     ABI: {
         MOONWELL: [
             "function getAccountLiquidity(address account) view returns (uint, uint, uint)",
-            "function getAllMarkets() view returns (address[])"
+            "function getAllMarkets() view returns (address[])",
+            // Добавляем ABI для самих mToken контрактов
+            "function symbol() view returns (string)",
+            "function underlying() view returns (address)",
+            "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)"
         ]
     },
     // Параметры для API

@@ -6,7 +6,7 @@ import * as LIFI from '@lifi/sdk';
 const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
 const RPC = CONFIG.NETWORKS[CONFIG.CHAIN].RPC_URL;
 const SELL_TOKEN = 'WETH';
-const BUY_TOKEN = 'OP';
+const BUY_TOKEN = 'USDC';//'OP';
 
 const provider = new ethers.JsonRpcProvider(RPC);
 

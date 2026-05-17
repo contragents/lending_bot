@@ -58,10 +58,12 @@ ZEROX_API_KEY: string;
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'OPT', // 'BASE', // OPT
+    CHAIN: 'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
+        cbBTC: 8,
+        WBTC: 8,
     },
     NETWORKS: {
         BASE: {

@@ -13,4 +13,4 @@
 'https://optimism.drpc.org',
 'https://optimism.api.onfinality.io/public',
 'https://endpoints.omniatech.io/v1/op/mainnet/public'
-'https://lb.drpc.live/optimism/ArrRTzsfcEhRgLJfiyW1zKzieQA6TJQR8aF1tiKh6MJI'
+'https://lb.drpc.live/optimism/<api_key>'

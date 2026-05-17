@@ -1,0 +1,4 @@
+https://mainnet.base.org - часто сбрасывает соединение
+https://llamarpc.com
+https://ankr.com
+https://lb.drpc.live/base/<api_key>

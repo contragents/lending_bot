@@ -1,4 +1,4 @@
-import {CONFIG} from './config.js'; // Важно: в ESM нужно указывать .js
+import {CONFIG, getEnv, LENDING} from './config.js'; // Важно: в ESM нужно указывать .js
 import {ethers, formatUnits} from 'ethers';
 import * as LIFI from '@lifi/sdk';
 
@@ -43,6 +43,14 @@ async function getMoonwellPositions() {
     );
 
     try {
+        let borrows = {};
+        let supplys = {};
+        const tgId = getEnv('TG_ID');
+        const baseUrl = "https://invest.legal/bot/lendingCorrection/";
+        const url = new URL(baseUrl);
+        const params = url.searchParams;
+        params.set('tg_id', String(tgId));
+        params.set('lending_id', LENDING[CONFIG.CHAIN][tgId].ID);
         // 1. Получаем адреса всех доступных рынков Moonwell в текущей сети
         const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
 
@@ -71,14 +79,18 @@ async function getMoonwellPositions() {
                 const underlyingAmountWei = BigInt(mTokenBalance * exchangeRate) / ethers.parseEther("1");
                 const formattedSupply = formatUnits(underlyingAmountWei, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
                 console.log(`🟢 Снабжение (Asset)  -> ${formattedSupply} ${underlyingSymbol}`);
+                params.set('supply_' + LENDING[CONFIG.CHAIN][tgId].PAIR_IDS[underlyingSymbol], formattedSupply);
             }
 
             // 4. Расчет баланса долга (Borrow Balance)
             if (borrowBalance > 0n) {
                 const formattedBorrow = formatUnits(borrowBalance, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
                 console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
+                params.set('borrow_' + LENDING[CONFIG.CHAIN][tgId].PAIR_IDS[underlyingSymbol], formattedBorrow);
             }
         }
+
+        console.log(await fetch(url.href));
     } catch (err: any) {
         console.error("Ошибка при получении позиций Moonwell:", err.message);
     }

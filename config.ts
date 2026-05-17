@@ -2,7 +2,7 @@ import 'dotenv/config';
 import {getAddress} from 'ethers';
 
 // Функция-помощник для проверки обязательных переменных
-const getEnv = (key: string): string => {
+export const getEnv = (key: string): string => {
     const value = process.env[key];
     if (!value) throw new Error(`Missing env variable: ${key}`);
 
@@ -40,13 +40,13 @@ interface NetworkSettings {
 interface AppConfig {
     CHAIN: ChainType; // Ограничиваем выбор сетей
     TOKEN_DECIMALS:
-        // Делаем все токены из списка необязательными (через знак ?)
+    // Делаем все токены из списка необязательными (через знак ?)
         { [K in SupportedToken]?: number } &
         // И жестко требуем наличие поля default
         { default: number } &
         // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
         { [key: string]: number };
-ZEROX_API_KEY: string;
+    ZEROX_API_KEY: string;
     SLIPPAGE: number;
     INTEGRATOR_ID: string,
     NETWORKS: {
@@ -58,7 +58,7 @@ ZEROX_API_KEY: string;
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'BASE', // OPT
+    CHAIN: 'OPT',//'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -107,3 +107,17 @@ export const CONFIG: AppConfig = {
     INTEGRATOR_ID: 'lifi', // или ваш ID
     SLIPPAGE: 0.005,      // 0.5%
 };
+
+export const LENDING = {
+    OPT: {
+        '294789510': {
+            ID: 4,
+            PAIR_IDS: {
+                OP: 122,
+                USDC: 100,
+                WETH: 132,
+            }
+        }
+    },
+    BASE:{},
+}

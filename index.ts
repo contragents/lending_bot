@@ -112,7 +112,7 @@ async function getJumperQuote() {
             insurance: false,  // Отключить страховку, если она включена по умолчанию
         };
 
-        const quote = await LIFI.getQuote(quoteRequest);
+        const quote = await withRetry<string>(() => LIFI.getQuote(quoteRequest));
         // Для USDC указываем 6 знаков
         const formattedAmount = formatUnits(quote.estimate.toAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
         const formattedAmountMin = formatUnits(quote.estimate.toAmountMin, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
@@ -180,6 +180,24 @@ async function get0xQuoteV2(amountInEth: string) {
     }
 }
 
+async function getUniswapPoolPrice(provider: ethers.JsonRpcProvider) {
+    const poolEthOp005Address = "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05"; // Пул 0.05%
+    const poolEthOp03Address = "0x68F5C0A2DE713a54991E01858Fd27a3832401849"; // Пул 0.3%
+
+    const poolContract = new ethers.Contract(poolEthOp03Address, CONFIG.ABI.UNISWAP, provider);
+
+    // Получаем текущий слепок пула (без затрат газа)
+    const [sqrtPriceX96, tick] = await poolContract.slot0();
+
+    // Математика Uniswap V3 для расчета цены из tick
+    // Цена ETH относительно OP = 1.0001 ^ tick
+    const priceETHinOP = Math.pow(1.0001, Number(tick));
+
+    console.log(`--- Uniswap V3 Pool (ETH/OP) ---`);
+    console.log(`Текущая цена 1 ETH = ${priceETHinOP.toFixed(6)} OP`);
+
+    return priceETHinOP;
+}
 
 // Вызов в main():
 // await
@@ -197,7 +215,8 @@ async function main() {
     await getMoonwellPositions(); // Детальный список позиций
 
     await getJumperQuote();
-    get0xQuoteV2("1.0");
+    await get0xQuoteV2("1.0");
+    await getUniswapPoolPrice(provider);
 }
 
 main();

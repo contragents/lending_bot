@@ -54,11 +54,12 @@ interface AppConfig {
     };
     ABI: {
         MOONWELL: string[];
+        UNISWAP: string[];
     };
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'BASE', // OPT
+    CHAIN: 'OPT', // 'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -98,8 +99,12 @@ export const CONFIG: AppConfig = {
             // Добавляем ABI для самих mToken контрактов
             "function symbol() view returns (string)",
             "function underlying() view returns (address)",
-            "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)"
-        ]
+            "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)",
+        ],
+        UNISWAP: [
+            "function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"
+            ,
+        ],
     },
     // Параметры для API
     ZEROX_API_KEY: getEnv('ZEROX_API_KEY'),

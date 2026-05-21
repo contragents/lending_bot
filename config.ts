@@ -58,7 +58,7 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'OPT',//'BASE', // OPT
+    CHAIN: 'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -119,5 +119,15 @@ export const LENDING = {
             }
         }
     },
-    BASE:{},
+    BASE:{'294789510': {
+            ID: 2,
+            PAIR_IDS: {
+                OP: 122,
+                USDC: 100,
+                WETH: 132,
+                cbBTC: 136,
+                MAMO: 134,
+                WELL: 139,
+            }
+        }},
 }

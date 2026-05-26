@@ -59,7 +59,7 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'OPT', // 'BASE', // OPT
+    CHAIN: 'OPT', //'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -102,8 +102,9 @@ export const CONFIG: AppConfig = {
             "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)",
         ],
         UNISWAP: [
-            "function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)"
-            ,
+            "function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)",
+            "function liquidity() view returns (uint128)",
+            "function fee() view returns (uint24)",
         ],
     },
     // Параметры для API
@@ -124,7 +125,8 @@ export const LENDING = {
             }
         }
     },
-    BASE:{'294789510': {
+    BASE: {
+        '294789510': {
             ID: 2,
             PAIR_IDS: {
                 OP: 122,
@@ -134,5 +136,13 @@ export const LENDING = {
                 MAMO: 134,
                 WELL: 139,
             }
-        }},
+        }
+    },
+}
+
+export const POOLS = {
+    OPT: {
+        EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
+        EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
+    },
 }

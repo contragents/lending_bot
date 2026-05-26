@@ -1,4 +1,4 @@
-import {CONFIG, getEnv, LENDING} from './config.js'; // Важно: в ESM нужно указывать .js
+import {CONFIG, getEnv, LENDING, POOLS} from './config.js'; // Важно: в ESM нужно указывать .js
 import {ethers, formatUnits} from 'ethers';
 import * as LIFI from '@lifi/sdk';
 
@@ -199,10 +199,8 @@ async function getUniswapPoolPrice(provider: ethers.JsonRpcProvider) {
     return priceETHinOP;
 }
 
-// Вызов в main():
-// await
-
 import {loadWallet} from './utils.js'; // Не забываем .js для ESM
+import {estimatePriceImpact} from './utils.js';
 
 const wallet = await loadWallet(provider);
 const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
@@ -216,7 +214,11 @@ async function main() {
 
     await getJumperQuote();
     await get0xQuoteV2("1.0");
-    await getUniswapPoolPrice(provider);
+    if(CONFIG.CHAIN === 'OPT') {
+        await getUniswapPoolPrice(provider);
+        await estimatePriceImpact(provider, 10000, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
+        await estimatePriceImpact(provider, 10000, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
+    }
 }
 
 main();

@@ -56,3 +56,49 @@ export async function loadWallet(provider: ethers.Provider) {
         return;
     }
 }
+
+export async function estimatePriceImpact(
+    provider: ethers.JsonRpcProvider,
+    amountInHuman: number, // Сколько OP мы хотим поменять (например, 1000)
+    poolAddress: string,
+    abi: string[],
+) {
+    const poolContract = new ethers.Contract(poolAddress, abi, provider);
+
+    const [sqrtPriceX96] = await poolContract.slot0();
+    const L = BigInt(await poolContract.liquidity());
+    const Q96 = BigInt(2) ** BigInt(96);
+
+    // Входящая сумма OP в Wei
+    const amountInWei = ethers.parseUnits(amountInHuman.toString(), 18);
+
+    // 1. КОРРЕКТНЫЙ РАСЧЕТ КУРСОВ (Token 0 = WETH, Token 1 = OP)
+    // ratio = количество OP за 1 ETH
+    const ratio = (Number(sqrtPriceX96) / Number(Q96)) ** 2;
+
+    const currentPriceETHinOP = ratio;          // 1 ETH = ~15926 OP
+    const currentPriceOPinETH = 1 / ratio;      // 1 OP = ~0.000062 ETH
+
+    // 2. ФОРМУЛА СВОПА ДЛЯ ДОБАВЛЕНИЯ TOKEN 1 (OP)
+    // Точная формула Uniswap v3 для ΔsqrtP при добавлении Token 1:
+    // nextSqrtPriceX96 = sqrtPriceX96 + (amountIn * Q96) / L
+    const nextSqrtPriceX96 = sqrtPriceX96 + ((amountInWei * Q96) / L);
+
+    // 3. РАСЧЕТ НОВОЙ ЦЕНЫ ПОСЛЕ СВОПА
+    const newRatio = (Number(nextSqrtPriceX96) / Number(Q96)) ** 2;
+    const newPriceETHinOP = newRatio;
+    const newPriceOPinETH = 1 / newRatio;
+
+    // 4. РАСЧЕТ РЕАЛЬНОГО PRICE IMPACT
+    // Так как мы продаем OP, его цена в ETH должна незначительно упасть
+    const priceImpactPercent = ((currentPriceOPinETH - newPriceOPinETH) / currentPriceOPinETH) * 100;
+
+    console.log(`--- Корректный расчет обмена ${amountInHuman} OP -> ETH ---`);
+    console.log(`Рыночный курс: 1 ETH = ${currentPriceETHinOP.toFixed(2)} OP`);
+    console.log(`Текущая стоимость: 1 OP = ${currentPriceOPinETH.toFixed(8)} ETH`);
+    console.log(`Стоимость после обмена: 1 OP = ${newPriceOPinETH.toFixed(8)} ETH`);
+    console.log(`Реальный Price Impact: ${priceImpactPercent.toFixed(6)}%`);
+
+    return { newPriceOPinETH, priceImpactPercent };
+}
+

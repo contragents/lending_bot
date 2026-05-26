@@ -65,47 +65,72 @@ export async function estimatePriceImpact(
 ) {
     const poolContract = new ethers.Contract(poolAddress, abi, provider);
 
-    // 1. Получаем данные из пула
+    // 1. Получаем данные пула
     const [sqrtPriceX96] = await poolContract.slot0();
     const L = BigInt(await poolContract.liquidity());
-    const poolFee = await poolContract.fee(); // Например, 3000 или 500
+    const poolFee = await poolContract.fee();
     const Q96 = BigInt(2) ** BigInt(96);
 
-    // 2. РАСЧЕТ КОМИССИИ ПУЛА
-    const feePercent = Number(poolFee) / 10000; // Переводим в % (0.3 или 0.05)
-    const feeAmountHuman = amountInHuman * (feePercent / 100); // Сколько токенов уйдет на комиссию
-    const amountAfterFeeHuman = amountInHuman - feeAmountHuman; // Сколько токенов пойдет в обмен
+    const amountInWei = ethers.parseUnits(amountInHuman.toString(), 18);
 
-    // Переводим чистую сумму обмена в Wei для формулы
-    const amountAfterFeeWei = ethers.parseUnits(amountAfterFeeHuman.toString(), 18);
+    // 2. Считаем комиссию пула
+    const feePercent = Number(poolFee) / 10000; // 0.3 или 0.05
+    const feeAmountWei = (amountInWei * BigInt(poolFee)) / BigInt(1000000);
+    const amountAfterFeeWei = amountInWei - feeAmountWei;
 
-    // 3. РАСЧЕТ РЫНОЧНЫХ КУРСОВ (До обмена)
-    const ratio = (Number(sqrtPriceX96) / Number(Q96)) ** 2;
-    const currentPriceETHinOP = ratio;
-    const currentPriceOPinETH = 1 / ratio;
+    // Человеческий размер комиссии для логов
+    const feeAmountHuman = Number(ethers.formatUnits(feeAmountWei, 18));
 
-    // 4. ФОРМУЛА СВОПА (Используем сумму ПОСЛЕ вычета комиссии)
-    const nextSqrtPriceX96 = sqrtPriceX96 + ((amountAfterFeeWei * Q96) / L);
+    // 3. Текущий курс (сколько ETH стоит 1 OP)
+    const sqrtP_start = BigInt(sqrtPriceX96);
+    const ratio_start = (Number(sqrtP_start) / Number(Q96)) ** 2;
+    const currentPriceOPinETH = 1 / ratio_start;
 
-    // 5. РАСЧЕТ НОВОЙ ЦЕНЫ И PRICE IMPACT
-    const newRatio = (Number(nextSqrtPriceX96) / Number(Q96)) ** 2;
-    const newPriceOPinETH = 1 / newRatio;
+    // Идеальный объем ETH, который мы должны были получить без комиссий и потерь
+    const idealAmountOutETH = amountInHuman * currentPriceOPinETH;
 
-    const priceImpactPercent = ((currentPriceOPinETH - newPriceOPinETH) / currentPriceOPinETH) * 100;
+    // 4. Расчет нового корня цены после добавления чистой суммы OP (Token 1)
+    const sqrtP_end = sqrtP_start + ((amountAfterFeeWei * Q96) / L);
 
-    console.log(`--- Расчет обмена ${amountInHuman} OP -> ETH (Размер комиссии: ${feePercent}%) ---`);
-    console.log(`Комиссия пула: ${feeAmountHuman.toFixed(4)} OP`);
-    console.log(`Чистая сумма обмена: ${amountAfterFeeHuman.toFixed(4)} OP`);
-    console.log(`Рыночный курс: 1 ETH = ${currentPriceETHinOP.toFixed(2)} OP`);
-    console.log(`Текущая стоимость: 1 OP = ${currentPriceOPinETH.toFixed(8)} ETH`);
-    console.log(`Стоимость после обмена: 1 OP = ${newPriceOPinETH.toFixed(8)} ETH`);
-    console.log(`Реальный Price Impact (с учетом комиссии): ${priceImpactPercent.toFixed(6)}%`);
+    // 5. РАСЧЕТ РЕАЛЬНОГО ВЫХОДА ETH (Token 0) ПО ФОРМУЛЕ UNISWAP V3
+    // Δx = (L * Q96 * (sqrtP_end - sqrtP_start)) / (sqrtP_end * sqrtP_start)
+    const numerator = L * Q96 * (sqrtP_end - sqrtP_start);
+    const denominator = sqrtP_end * sqrtP_start;
+    const realAmountOutWei = numerator / denominator;
+
+    const realAmountOutETH = Number(ethers.formatUnits(realAmountOutWei, 18));
+
+    // 6. РАСЧЕТ ВСЕХ ВИДОВ ПОТЕРЬ (В ETH и в пересчете на OP)
+    // Общие потери в ETH
+    const totalLossETH = idealAmountOutETH - realAmountOutETH;
+
+    // Переводим потери обратно в OP по текущему курсу, чтобы выразить в % от вносимых токенов
+    const totalLossInOP = totalLossETH / currentPriceOPinETH;
+
+    // Общий процент потерь от исходной суммы OP
+    const totalLossPercent = (totalLossInOP / amountInHuman) * 100;
+
+    // Потери чисто от Price Impact (Общие потери минус комиссия)
+    const priceImpactInOP = totalLossInOP - feeAmountHuman;
+    const priceImpactPercent = (priceImpactInOP / amountInHuman) * 100;
+
+    console.log(`--- Полный анализ затрат для ${amountInHuman} OP -> ETH (Пул ${feePercent}%) ---`);
+    console.log(`Идеальный выход (без потерь): ${idealAmountOutETH.toFixed(6)} ETH`);
+    console.log(`Реальный выход на кошелек:   ${realAmountOutETH.toFixed(6)} ETH`);
+    console.log(`\n[ Абсолютные потери в OP ]:`);
+    console.log(`- Комиссия пула:             ${feeAmountHuman.toFixed(4)} OP`);
+    console.log(`- Потери от Price Impact:    ${priceImpactInOP.toFixed(4)} OP`);
+    console.log(`- Итого потеряно:            ${totalLossInOP.toFixed(4)} OP`);
+    console.log(`\n[ Процентные потери от вносимых OP ]:`);
+    console.log(`- Процент комиссии:          ${feePercent.toFixed(4)}%`);
+    console.log(`- Процент Price Impact:      ${priceImpactPercent.toFixed(4)}%`);
+    console.log(`- ОБЩИЙ ПРОЦЕНТ ПОТЕРЬ:      ${totalLossPercent.toFixed(4)}%`);
 
     return {
-        newPriceOPinETH,
-        priceImpactPercent,
+        realAmountOutETH,
+        totalLossPercent,
         feeAmountHuman,
-        feePercent
+        priceImpactPercent
     };
 }
 

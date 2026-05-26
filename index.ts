@@ -8,7 +8,10 @@ const RPC = CONFIG.NETWORKS[CONFIG.CHAIN].RPC_URL;
 const SELL_TOKEN = 'WETH';
 const BUY_TOKEN = 'USDC';//'OP';
 
-const provider = new ethers.JsonRpcProvider(RPC);
+const provider = new ethers.JsonRpcProvider(RPC,
+    undefined,
+    {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);
+);
 
 // Инициализация LI.FI SDK
 LIFI.createConfig({

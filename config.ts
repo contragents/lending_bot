@@ -55,6 +55,8 @@ interface AppConfig {
     ABI: {
         MOONWELL: string[];
         UNISWAP: string[];
+        ORACLE: string[];
+        UNISWAP_ROUTER: string[];
     };
 }
 
@@ -106,6 +108,16 @@ export const CONFIG: AppConfig = {
             "function liquidity() view returns (uint128)",
             "function fee() view returns (uint24)",
         ],
+        ORACLE: [
+            "function l1BaseFee() view returns (uint256)",
+            "function blobBaseFee() view returns (uint256)",
+            "function baseFeeScalar() view returns (uint32)",
+            "function blobBaseFeeScalar() view returns (uint32)",
+            "function decimals() view returns (uint256)",
+        ],
+        UNISWAP_ROUTER: [
+            "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)",
+        ],
     },
     // Параметры для API
     ZEROX_API_KEY: getEnv('ZEROX_API_KEY'),
@@ -144,5 +156,6 @@ export const POOLS = {
     OPT: {
         EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
         EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
+        OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
     },
 }

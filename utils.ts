@@ -1,4 +1,12 @@
 import {CONFIG, POOLS} from "./config.js";
+import {formatUnits} from 'ethers';
+import {provider} from "./config.js";
+import {WATCH_ADDRESS, SELL_TOKEN, BUY_TOKEN} from "./config.js";
+
+const wallet = await loadWallet(provider);
+const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
+const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
 
 /**
  * Универсальная обертка для повторных попыток выполнения асинхронных функций
@@ -32,14 +40,215 @@ export async function withRetry<T>(
     }
 }
 
+export async function getMoonwellData() {
+    console.log(`--- Moonwell Status (${CONFIG.CHAIN}) ---`);
+    const comptroller = new ethers.Contract(
+        CONFIG.NETWORKS[CONFIG.CHAIN!].MOONWELL.COMPTROLLER,
+        CONFIG.ABI.MOONWELL,
+        provider
+    ) as any;
+
+    // Возвращает: (error, liquidity, shortfall)
+    // Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
+    const [error, liquidity, shortfall] = await withRetry<[bigint, bigint, bigint]>(
+        () => comptroller.getAccountLiquidity(WATCH_ADDRESS)
+    );
+
+    console.log(`User: ${WATCH_ADDRESS}`);
+    console.log(`Available Liquidity (в USD, 1e18): ${ethers.formatEther(liquidity)}`);
+    console.log(`Shortfall (Риск): ${ethers.formatEther(shortfall)}`);
+}
+
+import {getEnv} from "./config.js";
+import {LENDING} from "./config.js";
+import type {SupportedToken} from "./config.js";
+
+export async function getMoonwellPositions() {
+    console.log(`--- Moonwell Assets & Liabilities (${CONFIG.CHAIN}) ---`);
+
+    const comptroller = new ethers.Contract(
+        currentNetwork.MOONWELL.COMPTROLLER,
+        CONFIG.ABI.MOONWELL,
+        provider
+    );
+
+    try {
+        let borrows = {};
+        let supplys = {};
+        const tgId = getEnv('TG_ID');
+        const baseUrl = "https://invest.legal/bot/lendingCorrection/";
+        const url = new URL(baseUrl);
+        const params = url.searchParams;
+        params.set('tg_id', String(tgId));
+
+        const chainConfig = LENDING[CONFIG.CHAIN!];
+        const userConfig = chainConfig[tgId as keyof typeof chainConfig];
+        // Используем с проверкой на случай, если пользователя нет в конфиге
+        params.set('lending_id', String(userConfig?.ID ?? ''));
+
+        // 1. Получаем адреса всех доступных рынков Moonwell в текущей сети
+        const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
+
+        for (const mTokenAddress of markets) {
+            // Создаем инстанс контракта конкретного рынка (например, mUSDC или mWETH)
+            const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, provider);
+
+            // 2. Получаем слепок аккаунта для этого рынка
+            // Возвращает: (error, баланс_mToken, баланс_займа, внутренний_курс_обмена)
+            const [error, mTokenBalance, borrowBalance, exchangeRate] =
+                await withRetry<[bigint, bigint, bigint, bigint]>(() => (mToken as any).getAccountSnapshot(WATCH_ADDRESS));
+
+            if (error !== 0n) continue;
+
+            // Если балансы нулевые, пропускаем этот токен, чтобы не спамить в консоль
+            if (mTokenBalance === 0n && borrowBalance === 0n) continue;
+
+            // Получаем тикер рынка (например, "mUSDC")
+            const mTokenSymbol = await withRetry<string>(() => (mToken as any).symbol());
+            const underlyingSymbol = mTokenSymbol.substring(1); // Отсекаем первую 'm', получаем 'USDC'
+
+            // 3. Расчет реального баланса актива (Supply Balance)
+            // mTokens имеют свой баланс, который увеличивается за счет процентов.
+            // Формула: (баланс_mToken * курс_обмена) / 1e18
+            if (mTokenBalance > 0n) {
+                const underlyingAmountWei = BigInt(mTokenBalance * exchangeRate) / ethers.parseEther("1");
+                const formattedSupply = formatUnits(underlyingAmountWei, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
+                console.log(`🟢 Снабжение (Asset)  -> ${formattedSupply} ${underlyingSymbol}`);
+                params.set('supply_' + userConfig.PAIR_IDS[underlyingSymbol as keyof typeof userConfig.PAIR_IDS], formattedSupply);
+            }
+
+            // 4. Расчет баланса долга (Borrow Balance)
+            if (borrowBalance > 0n) {
+                const formattedBorrow = formatUnits(borrowBalance, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
+                console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
+                params.set('borrow_' + userConfig.PAIR_IDS[underlyingSymbol as keyof typeof userConfig.PAIR_IDS], formattedBorrow);
+            }
+        }
+
+        const response = await fetch(url.href);
+        const text = await response.text(); // Читаем ответ как строку
+        console.log(url.href, text); // Выведет чистый текст ответа
+    } catch (err: any) {
+        console.error("Ошибка при получении позиций Moonwell:", err.message);
+    }
+}
+
+import * as LIFI from '@lifi/sdk';
+
+// Инициализация LI.FI SDK
+LIFI.createConfig({
+    integrator: 'lifi',
+    // здесь можно добавить настройки чейнов, если нужно
+});
+
+export async function getJumperQuote() {
+    console.log(`--- JUMPER (LIFI) Quote (${CONFIG.CHAIN}) ---`);
+    try {
+        const quoteRequest = {
+            fromChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
+            toChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
+            fromToken: sellTokenAddr!,
+            toToken: buyTokenAddr!,
+            fromAmount: '1000000000000000000', // 1 ETH
+            fromAddress: WATCH_ADDRESS,
+            slippage: 0.005, // 0.5%
+            order: 'CHEAPEST' as const, // Принудительно искать самый дешевый вариант
+            insurance: false,  // Отключить страховку, если она включена по умолчанию
+        };
+
+        const quote = await withRetry(() => LIFI.getQuote(quoteRequest));
+        // Для USDC указываем 6 знаков
+        const formattedAmount = formatUnits(quote.estimate.toAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
+        const formattedAmountMin = formatUnits(quote.estimate.toAmountMin, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
+
+        //console.dir(quote.estimate, {depth: null});
+
+        console.log(`Лучший маршрут: ${quote.tool}`);
+        console.log(`Вы получите (LIFI): ${formattedAmount}/${formattedAmountMin} ${BUY_TOKEN}`);
+    } catch (error) {
+        console.error('Ошибка получения котировки:', error);
+    }
+}
+
+
+export async function get0xQuoteV2(amountInEth: string) {
+    console.log(`--- 0x API v2 Quote (CONFIG.CHAIN) ---`);
+
+    //const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+    const amountInWei = ethers.parseEther(amountInEth).toString();
+
+    // Параметры согласно документации v2
+    // @ts-ignore
+    const params = new URLSearchParams({
+        chainId: CONFIG.NETWORKS[CONFIG.CHAIN].ID, // Optimism
+        sellToken: sellTokenAddr, // ETH
+        buyToken: buyTokenAddr,
+        sellAmount: amountInWei,
+        taker: WATCH_ADDRESS, // Адрес того, кто будет делать обмен
+        slippagePercentage: CONFIG.SLIPPAGE.toString(),
+    });
+
+    try {
+        const response = await fetch(
+            `https://api.0x.org/swap/allowance-holder/quote?${params.toString()}`,
+            {
+                headers: {
+                    "0x-api-key": CONFIG.ZEROX_API_KEY,
+                    "0x-version": "v2", // Обязательно для нового API
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        if (!response.ok) {
+            // В v2 ошибки часто возвращаются в формате JSON с полем "reason"
+            const errorData = await response.json();
+            console.error('Детали ошибки 0x:', errorData);
+
+            return;
+        }
+
+        const data = await response.json() as any;
+
+        // В v2 структура ответа может отличаться: ищите buyAmount в объекте
+        console.log(`Вы получите (0x): ${ethers.formatUnits(data.buyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])}/${ethers.formatUnits(data.minBuyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])} ${BUY_TOKEN}`);
+
+        // console.dir(data, {depth: null});
+
+        return data;
+
+    } catch (error: any) {
+        // Если fetch failed, смотрим причину (cause)
+        console.error('Ошибка сети:', error.message);
+        if (error.cause) console.error('Причина:', error.cause);
+    }
+}
+
+export async function getUniswapPoolPrice(provider: ethers.JsonRpcProvider) {
+    const poolEthOp005Address = "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05"; // Пул 0.05%
+    const poolEthOp03Address = "0x68F5C0A2DE713a54991E01858Fd27a3832401849"; // Пул 0.3%
+
+    const poolContract = new ethers.Contract(poolEthOp03Address, CONFIG.ABI.UNISWAP, provider) as any;
+
+    // Получаем текущий слепок пула (без затрат газа)
+    const [sqrtPriceX96, tick] = await poolContract.slot0();
+
+    // Математика Uniswap V3 для расчета цены из tick
+    // Цена ETH относительно OP = 1.0001 ^ tick
+    const priceETHinOP = Math.pow(1.0001, Number(tick));
+
+    console.log(`--- Uniswap V3 Pool (ETH/OP) ---`);
+    console.log(`Текущая цена 1 ETH = ${priceETHinOP.toFixed(6)} OP`);
+
+    return priceETHinOP;
+}
+
 import {ethers} from 'ethers';
 import readline from 'readline/promises';
 export async function loadWallet(provider: ethers.Provider) {
-    const keystoreJson = process.env.ENCRYPTED_KEY;
-    let password;
-    if (process.env.KEY_PASSWORD) {
-        password = process.env.KEY_PASSWORD;
-    } else {
+    const keystoreJson = getEnv('ENCRYPTED_KEY');
+    let password = getEnv('KEY_PASSWORD');
+    if (!password || password === '0') {
         // Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
         const rl = readline.createInterface({input: process.stdin, output: process.stdout});
         password = await rl.question('Введите пароль от кошелька: ');
@@ -65,9 +274,7 @@ export async function estimatePriceImpact(
     poolAddress: string,
     abi: string[],
 ) {
-    const poolContract = new ethers.Contract(poolAddress, abi, provider);
-
-    const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider);
+    const poolContract = new ethers.Contract(poolAddress, abi, provider) as any;
 
     // 1. ПОЛУЧЕНИЕ ИСХОДНЫХ ДАННЫХ ПУЛА
     const [sqrtPriceX96] = await poolContract.slot0();
@@ -153,7 +360,7 @@ export async function estimatePriceImpact(
 }
 
 async function l1FeeEstimated(provider: ethers.JsonRpcProvider){
-    const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider);
+    const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
 
     // 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPTIMISM (L1 Ecotone + L2)
     const l1BaseFee = await oracleContract.l1BaseFee();

@@ -10,7 +10,7 @@ export const getEnv = (key: string): string => {
 };
 
 // Задаем список всех поддерживаемых токенов
-type SupportedToken = 'USDC' | 'OP' | 'ETH' | 'WETH' | 'cbBTC';
+export type SupportedToken = 'USDC' | 'OP' | 'ETH' | 'WETH' | 'cbBTC';
 
 // Описываем структуру для токенов в конкретной сети
 type TokenList = {
@@ -159,3 +159,15 @@ export const POOLS = {
         OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
     },
 }
+
+// Настройки
+export const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
+export const RPC = CONFIG.NETWORKS[CONFIG.CHAIN].RPC_URL;
+export const SELL_TOKEN = 'WETH';
+export const BUY_TOKEN = 'USDC';//'OP';
+
+import {ethers} from 'ethers';
+export const provider = new ethers.JsonRpcProvider(RPC,
+    undefined,
+    {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);
+);

@@ -148,3 +148,4 @@ vite.config.ts.timestamp-*
 /package-lock.json
 /.idea/php.xml
 /.idea/vcs.xml
+/docs/LLM_history/

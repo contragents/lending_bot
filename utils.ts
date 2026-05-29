@@ -1,9 +1,20 @@
-import {CONFIG, POOLS} from "./config.js";
-import {formatUnits} from 'ethers';
-import {provider} from "./config.js";
-import {WATCH_ADDRESS, SELL_TOKEN, BUY_TOKEN} from "./config.js";
+import {
+    BUY_TOKEN,
+    CONFIG,
+    getEnv,
+    POOLS,
+    provider,
+    SELL_TOKEN,
+    type SupportedToken,
+    type WalletBalances,
+    WATCH_ADDRESS
+} from "./config.js";
+import {ethers, formatUnits} from 'ethers';
 
-const wallet = await loadWallet(provider);
+import * as LIFI from '@lifi/sdk';
+import readline from 'readline/promises';
+
+export const wallet = await loadWallet(provider);
 const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
 const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
 const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
@@ -39,101 +50,6 @@ export async function withRetry<T>(
         throw error;
     }
 }
-
-export async function getMoonwellData() {
-    console.log(`--- Moonwell Status (${CONFIG.CHAIN}) ---`);
-    const comptroller = new ethers.Contract(
-        CONFIG.NETWORKS[CONFIG.CHAIN!].MOONWELL.COMPTROLLER,
-        CONFIG.ABI.MOONWELL,
-        provider
-    ) as any;
-
-    // Возвращает: (error, liquidity, shortfall)
-    // Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
-    const [error, liquidity, shortfall] = await withRetry<[bigint, bigint, bigint]>(
-        () => comptroller.getAccountLiquidity(WATCH_ADDRESS)
-    );
-
-    console.log(`User: ${WATCH_ADDRESS}`);
-    console.log(`Available Liquidity (в USD, 1e18): ${ethers.formatEther(liquidity)}`);
-    console.log(`Shortfall (Риск): ${ethers.formatEther(shortfall)}`);
-}
-
-import {getEnv} from "./config.js";
-import {LENDING} from "./config.js";
-import type {SupportedToken} from "./config.js";
-
-export async function getMoonwellPositions() {
-    console.log(`--- Moonwell Assets & Liabilities (${CONFIG.CHAIN}) ---`);
-
-    const comptroller = new ethers.Contract(
-        currentNetwork.MOONWELL.COMPTROLLER,
-        CONFIG.ABI.MOONWELL,
-        provider
-    );
-
-    try {
-        let borrows = {};
-        let supplys = {};
-        const tgId = getEnv('TG_ID');
-        const baseUrl = "https://invest.legal/bot/lendingCorrection/";
-        const url = new URL(baseUrl);
-        const params = url.searchParams;
-        params.set('tg_id', String(tgId));
-
-        const chainConfig = LENDING[CONFIG.CHAIN!];
-        const userConfig = chainConfig[tgId as keyof typeof chainConfig];
-        // Используем с проверкой на случай, если пользователя нет в конфиге
-        params.set('lending_id', String(userConfig?.ID ?? ''));
-
-        // 1. Получаем адреса всех доступных рынков Moonwell в текущей сети
-        const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
-
-        for (const mTokenAddress of markets) {
-            // Создаем инстанс контракта конкретного рынка (например, mUSDC или mWETH)
-            const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, provider);
-
-            // 2. Получаем слепок аккаунта для этого рынка
-            // Возвращает: (error, баланс_mToken, баланс_займа, внутренний_курс_обмена)
-            const [error, mTokenBalance, borrowBalance, exchangeRate] =
-                await withRetry<[bigint, bigint, bigint, bigint]>(() => (mToken as any).getAccountSnapshot(WATCH_ADDRESS));
-
-            if (error !== 0n) continue;
-
-            // Если балансы нулевые, пропускаем этот токен, чтобы не спамить в консоль
-            if (mTokenBalance === 0n && borrowBalance === 0n) continue;
-
-            // Получаем тикер рынка (например, "mUSDC")
-            const mTokenSymbol = await withRetry<string>(() => (mToken as any).symbol());
-            const underlyingSymbol = mTokenSymbol.substring(1); // Отсекаем первую 'm', получаем 'USDC'
-
-            // 3. Расчет реального баланса актива (Supply Balance)
-            // mTokens имеют свой баланс, который увеличивается за счет процентов.
-            // Формула: (баланс_mToken * курс_обмена) / 1e18
-            if (mTokenBalance > 0n) {
-                const underlyingAmountWei = BigInt(mTokenBalance * exchangeRate) / ethers.parseEther("1");
-                const formattedSupply = formatUnits(underlyingAmountWei, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
-                console.log(`🟢 Снабжение (Asset)  -> ${formattedSupply} ${underlyingSymbol}`);
-                params.set('supply_' + userConfig.PAIR_IDS[underlyingSymbol as keyof typeof userConfig.PAIR_IDS], formattedSupply);
-            }
-
-            // 4. Расчет баланса долга (Borrow Balance)
-            if (borrowBalance > 0n) {
-                const formattedBorrow = formatUnits(borrowBalance, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
-                console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
-                params.set('borrow_' + userConfig.PAIR_IDS[underlyingSymbol as keyof typeof userConfig.PAIR_IDS], formattedBorrow);
-            }
-        }
-
-        const response = await fetch(url.href);
-        const text = await response.text(); // Читаем ответ как строку
-        console.log(url.href, text); // Выведет чистый текст ответа
-    } catch (err: any) {
-        console.error("Ошибка при получении позиций Moonwell:", err.message);
-    }
-}
-
-import * as LIFI from '@lifi/sdk';
 
 // Инициализация LI.FI SDK
 LIFI.createConfig({
@@ -224,11 +140,10 @@ export async function get0xQuoteV2(amountInEth: string) {
     }
 }
 
-export async function getUniswapPoolPrice(provider: ethers.JsonRpcProvider) {
-    const poolEthOp005Address = "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05"; // Пул 0.05%
-    const poolEthOp03Address = "0x68F5C0A2DE713a54991E01858Fd27a3832401849"; // Пул 0.3%
+export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider) {
+    const poolFee = pool === POOLS.OPT.EthOp005 ? "0.05" : "0.3";
 
-    const poolContract = new ethers.Contract(poolEthOp03Address, CONFIG.ABI.UNISWAP, provider) as any;
+    const poolContract = new ethers.Contract(pool, CONFIG.ABI.UNISWAP, provider) as any;
 
     // Получаем текущий слепок пула (без затрат газа)
     const [sqrtPriceX96, tick] = await poolContract.slot0();
@@ -237,14 +152,12 @@ export async function getUniswapPoolPrice(provider: ethers.JsonRpcProvider) {
     // Цена ETH относительно OP = 1.0001 ^ tick
     const priceETHinOP = Math.pow(1.0001, Number(tick));
 
-    console.log(`--- Uniswap V3 Pool (ETH/OP) ---`);
+    console.log(`--- Uniswap V3 Pool (ETH/OP ${poolFee}) ---`);
     console.log(`Текущая цена 1 ETH = ${priceETHinOP.toFixed(6)} OP`);
 
     return priceETHinOP;
 }
 
-import {ethers} from 'ethers';
-import readline from 'readline/promises';
 export async function loadWallet(provider: ethers.Provider) {
     const keystoreJson = getEnv('ENCRYPTED_KEY');
     let password = getEnv('KEY_PASSWORD');
@@ -356,10 +269,10 @@ export async function estimatePriceImpact(
     console.log(`- Процент затрат на газ:     ${gasLossPercent.toFixed(6)}%`);
     console.log(`- ОБЩИЙ ПРОЦЕНТ ПОТЕРЬ:      ${totalLossPercent.toFixed(4)}%`);
 
-    return { realAmountOutETH, netAmountOutETH, totalLossPercent };
+    return {realAmountOutETH, netAmountOutETH, totalLossPercent};
 }
 
-async function l1FeeEstimated(provider: ethers.JsonRpcProvider){
+async function l1FeeEstimated(provider: ethers.JsonRpcProvider) {
     const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
 
     // 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPTIMISM (L1 Ecotone + L2)
@@ -380,42 +293,90 @@ async function l1FeeEstimated(provider: ethers.JsonRpcProvider){
     return (calldataGas * (scaledBaseFee + scaledBlobBaseFee)) / (BigInt(16) * (BigInt(10) ** oracleDecimals));
 }
 
-export interface MTokensCache {
-    [symbol: string]: string;
-}
+export async function getWalletBalances(): Promise<WalletBalances> {
+    console.log(`\n--- Проверка балансов кошелька (${CONFIG.CHAIN}) ---`);
+    console.log(`Адрес: ${WATCH_ADDRESS}`);
 
-// Вызывается один раз при старте бота
-export async function initializeMTokensCache(provider: ethers.JsonRpcProvider): Promise<MTokensCache> {
-    console.log(`--- Инициализация кэша mTokens Moonwell (${CONFIG.CHAIN}) ---`);
-
-    const comptroller = new ethers.Contract(
-        currentNetwork.MOONWELL.COMPTROLLER,
-        CONFIG.ABI.MOONWELL,
-        provider
-    );
-
-    const cache: MTokensCache = {};
+    const balances: WalletBalances = {};
 
     try {
-        // Получаем все рынки из блокчейна один раз
-        const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
+        // 1. СНАЧАЛА ПОЛУЧАЕМ БАЛАНС НАТИВНОГО ETH
+        // Нативный баланс запрашивается напрямую через провайдер, а не через контракт
+        const ethBalanceWei = await withRetry<bigint>(() => provider.getBalance(WATCH_ADDRESS));
+        const ethBalanceHuman = Number(formatUnits(ethBalanceWei, 18));
 
-        for (const mTokenAddress of markets) {
-            const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, provider);
-            const mTokenSymbol = await withRetry<string>(() => (mToken as any).symbol());
+        balances['ETH'] = {
+            wei: ethBalanceWei,
+            human: ethBalanceHuman
+        };
+        console.log(`💰 ETH (Нативный) -> ${ethBalanceHuman.toFixed(6)} ETH`);
 
-            // Из 'mUSDC' получаем 'USDC', из 'mcbBTC' получаем 'cbBTC'
-            const underlyingSymbol = mTokenSymbol.substring(1);
+        // 2. ПОЛУЧАЕМ БАЛАНСЫ ОСТАЛЬНЫХ ERC-20 ТОКЕНОВ ИЗ КОНФИГА
+        // Перебираем токены, которые описаны в CONFIG.TOKEN_DECIMALS (например, USDC, OP, WETH, cbBTC)
+        for (const tokenSymbol in currentNetwork.TOKENS) {
+            console.log(tokenSymbol);
+            // Пропускаем ETH, так как нативный баланс мы уже получили выше
+            if (tokenSymbol === 'ETH') continue;
 
-            cache[underlyingSymbol] = mTokenAddress;
+            // Берем адрес контракта токена из конфигурации вашей текущей сети
+            if (!(tokenSymbol in currentNetwork.TOKENS)) {
+                console.log(`⚠️ Токен ${tokenSymbol} не описан в конфигурации TOKENS для этой сети.`);
+
+                continue;
+            }
+
+            const tokenAddress = currentNetwork.TOKENS[tokenSymbol as keyof typeof currentNetwork.TOKENS];
+
+            // ЗДЕСЬ ДОБАВЛЯЕМ ПРОВЕРКУ-ЗАЩИТУ:
+            if (!tokenAddress || tokenAddress === "0x0000000000000000000000000000000000000000") {
+                continue; // Пропускаем токен, если его адреса нет в этой сети
+            }
+            const tokenContract = new ethers.Contract(tokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, provider);
+            // Запрашиваем баланс токена на кошельке
+            //const balanceWei = await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
+            const balanceWei = await getTokenBalanceWei(tokenSymbol as SupportedToken);
+            // Используем decimals из глобального конфига
+            const decimals = CONFIG.TOKEN_DECIMALS[tokenSymbol] ?? CONFIG.TOKEN_DECIMALS.default;
+            const balanceHuman = Number(formatUnits(balanceWei, decimals));
+
+            balances[tokenSymbol] = {
+                wei: balanceWei,
+                human: balanceHuman
+            };
+
+            // Выводим в консоль только ненулевые балансы, чтобы не спамить
+            if (balanceHuman > 0) {
+                console.log(`🪙 ${tokenSymbol} (ERC-20)   -> ${balanceHuman.toFixed(6)} ${tokenSymbol}`);
+            }
         }
 
-        console.log(`Кэш mTokens успешно собран:`, cache);
-        return cache;
+        return balances;
     } catch (err: any) {
-        console.error("Критическая ошибка при инициализации кэша Moonwell:", err.message);
+        console.error("Ошибка при получении балансов кошелька:", err.message);
         throw err;
     }
 }
 
+async function getTokenBalanceWei(tokenSymbol: SupportedToken) {
+    const tokenAddress = currentNetwork.TOKENS[tokenSymbol as keyof typeof currentNetwork.TOKENS];
 
+    // ДОБАВЛЯЕМ ПРАВИЛЬНУЮ ПРОВЕРКУ-ЗАЩИТУ ДЛЯ ФУНКЦИИ:
+    if (!tokenAddress || tokenAddress === "0x0000000000000000000000000000000000000000") {
+        console.warn(`Токен ${tokenSymbol} не найден в текущей сети.`);
+
+        return 0n; // Возвращаем нулевой баланс (BigInt), если адреса нет в сети
+    }
+
+    const tokenContract = new ethers.Contract(tokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, provider);
+    // Запрашиваем баланс токена на кошельке
+    return await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
+}
+
+async function getTokenBalanceHuman(tokenSymbol: SupportedToken) {
+
+    const balanceWei = await getTokenBalanceWei(tokenSymbol);
+    // Используем decimals из глобального конфига
+    const decimals = CONFIG.TOKEN_DECIMALS[tokenSymbol] ?? CONFIG.TOKEN_DECIMALS.default;
+
+    return Number(formatUnits(balanceWei, decimals));
+}

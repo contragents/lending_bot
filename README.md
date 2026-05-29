@@ -6,6 +6,8 @@
 
 npm install# Для запуска используйте tsx (поддерживает ESM и TypeScript из коробки)
 npx tsx index.ts
+или из команды cmd:
+set KEY_PASSWORD=<somepass>&& npx tsx index.ts
 
 2. Фиксация версий
    Для стабильности на тестовом стенде версии зафиксированы в package.json (без символа ^). Рекомендуется устанавливать через:

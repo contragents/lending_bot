@@ -71,7 +71,6 @@ export const CONFIG: AppConfig = {
     },
     NETWORKS: {
         BASE: {
-
             ID: "8453",
             RPC_URL: getEnv('BASE_RPC_URL'),
             TOKENS: {
@@ -189,6 +188,7 @@ export const provider = new ethers.JsonRpcProvider(RPC,
 export const MOONWELL_MARKETS = {
     OPT: {
         M_TOKENS: {
+            ETH_ROUTER: "0xc4Ab8C031717d7ecCCD653BE898e0f92410E11dC",
             USDC: '0x8E08617b0d66359D73Aa11E11017834C29155525',
             USDT: '0xa3A53899EE8f9f6E963437C5B3f805FEc538BF84',
             DAI: '0x3FE782C2Fe7668C2F1Eb313ACf3022a31feaD6B2',

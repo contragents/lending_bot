@@ -3,7 +3,7 @@ import {formatUnits} from 'ethers';
 import {provider} from "./config.js";
 import {WATCH_ADDRESS} from "./config.js";
 import {ethers} from "ethers";
-import {withRetry} from "./utils.js";
+import {reportErrorGasSpent, reportGasSpent, withRetry} from "./utils.js";
 
 const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
 
@@ -181,6 +181,8 @@ export async function borrowMoonwellAsset(
             throw new Error("Транзакция упала на уровне блокчейна (Revert)");
         }
 
+        await reportGasSpent(receipt);
+
         // Константный хэш события Borrow(address borrower, uint256 borrowAmount, uint256 accountBorrows, uint256 totalBorrows)
         // Мы взяли его напрямую из успешного лога вашей транзакции (индекс 58)
         const BORROW_EVENT_TOPIC = "0x13ed6866d4e1ee6da46f845c46d7e54120883d75c5ea9a2dacc1c4ca8984ab80";
@@ -199,6 +201,8 @@ export async function borrowMoonwellAsset(
         return true;
     } catch (err: any) {
         console.error(`Ошибка при исполнении займа в Moonwell:`, err.message);
+
+        await reportErrorGasSpent(err);
 
         return false
     }
@@ -258,8 +262,13 @@ export async function supplyMoonwellAsset(
             console.log(`Отправка ${amountHuman} ETH напрямую в payable контракт...`);
             const txMint = await mTokenContract.mint({value: supplyAmountWei, gasLimit: 400000});
             const receipt = await txMint.wait();
-            if (receipt.status !== 1) throw new Error("Транзакция mint(ETH) завершилась ошибкой Revert");
+
+            if (receipt.status !== 1) {
+                throw new Error("Транзакция mint(ETH) завершилась ошибкой Revert");
+            }
+
             console.log(`🎉 Нативный ETH успешно внесен в залог!`);
+            await reportGasSpent(receipt);
 
             return true;
         }
@@ -282,8 +291,9 @@ export async function supplyMoonwellAsset(
         const currentAllowance: bigint = await tokenContract.allowance(wallet.address, mTokenAddress);
 
         if (currentAllowance < supplyAmountWei) {
-            console.log(`Разрешений недостаточно. Отправляем Approve...`);
-            const txApprove = await tokenContract.approve(mTokenAddress, supplyAmountWei);
+            console.log(`Разрешений недостаточно. Отправляем Approve x10...`);
+            const tenXApproveAmount = supplyAmountWei * 10n;
+            const txApprove = await tokenContract.approve(mTokenAddress, tenXApproveAmount);
             await txApprove.wait();
             console.log("🟢 Approve успешно подтвержден.");
         }
@@ -298,9 +308,13 @@ export async function supplyMoonwellAsset(
 
         console.log(`🎉 Токен ${underlyingSymbol} успешно внесен в залог!`);
 
+        await reportGasSpent(receipt);
+
         return true;
     } catch (err: any) {
         console.error(`Ошибка при исполнении универсальной операции Supply в Moonwell:`, err.message);
+
+        await reportErrorGasSpent(err);
 
         return false;
     }
@@ -308,7 +322,7 @@ export async function supplyMoonwellAsset(
 
 export async function repayMoonwellAsset(
     underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
-    amountHuman: number               // Сколько токенов возвращаем в человеческом формате
+    amountHuman: number               // Сколько токенов хотим вернуть
 ) {
     console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${CONFIG.CHAIN}) ---`);
 
@@ -325,10 +339,10 @@ export async function repayMoonwellAsset(
         throw new Error(`Не найден адрес базового токена для ${underlyingSymbol} в конфигурации сети`);
     }
 
-    // Сигнатура метода repayBorrow без возвращаемого значения для корректной работы ethers.js v6
     const mTokenExtendedAbi = [
         ...CONFIG.ABI.MOONWELL,
-        "function repayBorrow(uint256 repayAmount) external"
+        "function repayBorrow(uint256 repayAmount) external",
+        "function borrowBalanceStored(address account) view returns (uint256)"
     ];
 
     const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
@@ -337,40 +351,80 @@ export async function repayMoonwellAsset(
     try {
         // Переводим человеческую сумму в Wei с учетом decimals токена
         const decimals = CONFIG.TOKEN_DECIMALS[underlyingSymbol as keyof typeof CONFIG.TOKEN_DECIMALS] ?? 18;
-        const repayAmountWei = ethers.parseUnits(amountHuman.toString(), decimals);
+        let amountToRepayWei = ethers.parseUnits(amountHuman.toString(), decimals);
 
-        // 1. ПРОВЕРКА И ОТПРАВКА APPROVE
-        console.log(`Проверяем разрешения (allowance) для токена ${underlyingSymbol}...`);
-        const currentAllowance: bigint = await tokenContract.allowance(wallet.address, mTokenAddress);
+        // ================= БЛОК ЗАЩИТНЫХ ПРОВЕРОК БАЛАНСОВ =================
+        console.log(`Проверяем балансы и задолженность для ${underlyingSymbol}...`);
 
-        if (currentAllowance < repayAmountWei) {
-            console.log(`Разрешений недостаточно. Отправляем Approve...`);
-            const txApprove = await tokenContract.approve(mTokenAddress, repayAmountWei);
-            console.log(`Транзакция Approve отправлена. Хэш: ${txApprove.hash}`);
-            await txApprove.wait();
-            console.log("🟢 Approve успешно подтвержден блокчейном.");
-        } else {
-            console.log("Лимиты для контракта Moonwell уже подтверждены ранее.");
+        // 1. Проверяем реальный баланс токенов на кошельке
+        const walletBalanceWei: bigint = await tokenContract.balanceOf(wallet.address);
+        const walletBalanceHuman = formatUnits(walletBalanceWei, decimals);
+
+        if (walletBalanceWei === 0n) {
+            console.log(`⚠️ У вас нет токенов ${underlyingSymbol} в кошельке`);
+
+            return false;
         }
 
-        // 2. ОТПРАВКА ТРАНЗАКЦИИ REPAYBORROW В MOONWELL
-        console.log(`Отправка транзакции repayBorrow на контракт рынка ${underlyingSymbol}...`);
+        // 2. Проверяем точный текущий долг в Moonwell
+        const currentBorrowBalanceWei: bigint = await mTokenContract.borrowBalanceStored(wallet.address);
+        const currentBorrowHuman = formatUnits(currentBorrowBalanceWei, decimals);
 
-        // Ставим безопасный лимит газа для L2 вычислений
-        const txRepay = await mTokenContract.repayBorrow(repayAmountWei, {
-            gasLimit: 500000
-        });
+        console.log(`- Баланс кошелька:   ${walletBalanceHuman} ${underlyingSymbol}`);
+        console.log(`- Текущий долг:      ${currentBorrowHuman} ${underlyingSymbol}`);
 
-        console.log(`Транзакция Repay отправлена. Хэш: ${txRepay.hash}. Ожидаем подтверждения...`);
+        if (currentBorrowBalanceWei === 0n) {
+            console.log(`🟢 У вас нет активного долга по токену ${underlyingSymbol}. Погашение не требуется.`);
+
+            return false;
+        }
+
+        // КОРРЕКТИРОВКА 1: Защита от переплаты (если запросили больше реального долга)
+        if (amountToRepayWei > currentBorrowBalanceWei) {
+            console.log(`⚠️ Запрошено погашение (${amountHuman}), превышающее долг. Снижаем до размера долга.`);
+            amountToRepayWei = currentBorrowBalanceWei;
+        }
+
+        // КОРРЕКТИРОВКА 2: Защита от нехватки средств на кошельке
+        if (amountToRepayWei > walletBalanceWei) {
+            console.log(`⚠️ На кошельке нет нужной суммы. Погашаем на весь доступный баланс: ${walletBalanceHuman} ${underlyingSymbol}`);
+            amountToRepayWei = walletBalanceWei;
+        }
+
+        // Оставляем флаг полного закрытия долга, если гасим 100% оставшейся задолженности
+        const isFullRepay = (amountToRepayWei === currentBorrowBalanceWei);
+        const finalRepayAmountWei = isFullRepay ? ethers.MaxUint256 : amountToRepayWei;
+        const approveAmount = isFullRepay ? currentBorrowBalanceWei : amountToRepayWei;
+
+        // ================= APPROVE И ОТПРАВКА =================
+        console.log(`Проверяем разрешения (allowance)...`);
+        const currentAllowance: bigint = await tokenContract.allowance(wallet.address, mTokenAddress);
+
+        if (currentAllowance < approveAmount) {
+            // Рассчитываем сумму аппрува с запасом х10 от необходимой
+            const tenXApproveAmount = approveAmount * 10n;
+
+            console.log(`Разрешений недостаточно (Есть: ${formatUnits(currentAllowance, decimals)}).`);
+            console.log(`Отправляем Approve с ЗАПАСОМ х10 на сумму: ${formatUnits(tenXApproveAmount, decimals)} ${underlyingSymbol}...`);
+
+            const txApprove = await tokenContract.approve(mTokenAddress, tenXApproveAmount);
+            await txApprove.wait();
+            console.log("🟢 Большой Approve подтвержден блокчейном. Следующие ~9 транзакций пройдут без аппрува.");
+        }
+
+        console.log(`Отправка транзакции repayBorrow...`);
+        const txRepay = await mTokenContract.repayBorrow(finalRepayAmountWei, {gasLimit: 500000});
+
+        console.log(`Транзакция отправлена: ${txRepay.hash}. Ожидаем подтверждения...`);
         const receipt = await txRepay.wait();
 
         if (!receipt || receipt.status !== 1) {
-            throw new Error("Транзакция repayBorrow завершилась ошибкой (Revert) на стороне блокчейна");
+            throw new Error("Транзакция завершилась ошибкой (Revert) на стороне блокчейна");
         }
 
-        // 3. НИЗКОУРОВНЕВАЯ ВЕРИФИКАЦИЯ УСПЕХА ПО ЛОГАМ
-// Энергонезависимая генерация хэша события RepayBorrow средствами ethers.js v6
-// Сигнатура: RepayBorrow(address payer, address borrower, uint256 repayAmount, uint256 accountBorrows, uint256 totalBorrows)
+        await reportGasSpent(receipt);
+
+        // Верификация по нативному хэшу события RepayBorrow
         const mTokenInterface = new ethers.Interface([
             "event RepayBorrow(address payer, address borrower, uint256 repayAmount, uint256 accountBorrows, uint256 totalBorrows)"
         ]);
@@ -382,18 +436,21 @@ export async function repayMoonwellAsset(
         );
 
         if (!hasRepayLog) {
-            throw new Error("❌ Ошибка Moonwell: статус транзакции Success, но событие RepayBorrow не найдено (погашение отклонено протоколом)!");
+            throw new Error("❌ Ошибка: событие RepayBorrow не найдено в логах транзакции!");
         }
 
-        console.log(`🎉 Погашение долга успешно выполнено! ${amountHuman} ${underlyingSymbol} возвращено в протокол.`);
+        console.log(`🎉 Погашение успешно выполнено!`);
 
         return true;
     } catch (err: any) {
         console.error(`Ошибка при исполнении операции Repay в Moonwell:`, err.message);
 
+        await reportErrorGasSpent(err);
+
         return false;
     }
 }
+
 
 
 

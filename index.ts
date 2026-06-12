@@ -27,7 +27,7 @@ async function main() {
     //await get0xQuoteV2("1.0");
     if (CONFIG.CHAIN === 'OPT') {
         const borrowAmount = 120;
-        // console.log(await borrowMoonwellAsset('OP', borrowAmount)); // Берем займ - проверено
+        console.log(await borrowMoonwellAsset('OP', borrowAmount)); // Берем займ - проверено
         console.log(await repayMoonwellAsset('OP', borrowAmount)); // Отдаем займ - тест
 
         //await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004); // Вносим залог - проверено

@@ -380,3 +380,40 @@ async function getTokenBalanceHuman(tokenSymbol: SupportedToken) {
 
     return Number(formatUnits(balanceWei, decimals));
 }
+
+/**
+ * Вычисляет точную стоимость газа транзакции в ETH (L1 + L2) на основе квитанции
+ */
+export function calculateTxGasCost(receipt: ethers.TransactionReceipt): number {
+    if (!receipt) return 0;
+
+    // 1. Считаем L2 Execution Fee
+    const l2GasUsed = receipt.gasUsed;
+    const l2GasPrice = receipt.gasPrice;
+    const l2FeeWei = l2GasUsed * l2GasPrice;
+
+    // 2. Считаем L1 Data Fee (специфично для Optimism/Base)
+    // В ethers.js v6 свойство l1Fee может лежать в сырых данных квитанции
+    const l1FeeWei = (receipt as any).l1Fee ?? 0n;
+
+    // 3. Суммируем и переводим в человеческий ETH
+    const totalGasWei = l2FeeWei + l1FeeWei;
+
+    return Number(ethers.formatUnits(totalGasWei, 18));
+}
+
+export async function reportGasSpent(receipt: ethers.TransactionReceipt): Promise<void> {
+    const gasCostETH = calculateTxGasCost(receipt);
+    console.log(`🟢 [ГАЗ] Транзакция успешна. Потрачено: ${gasCostETH.toFixed(8)} ETH`);
+    console.log(`HASH транзакции: ${receipt.hash}`);
+}
+
+export async function reportErrorGasSpent(err: any): Promise<void> {
+    const failedReceipt = err.receipt ?? err.transactionReceipt;
+
+    if (failedReceipt) {
+        await reportGasSpent(failedReceipt);
+    } else {
+        console.log("Не удалось получить квитанцию упавшей транзакции (ошибка до отправки в сеть).");
+    }
+}

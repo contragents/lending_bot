@@ -62,7 +62,7 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'OPT', //'BASE', // OPT
+    CHAIN: 'OPT', // 'BASE', // OPT
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -127,7 +127,9 @@ export const CONFIG: AppConfig = {
         // Нам нужен стандартный минимальный ABI для работы с ERC-20 токенами
         ERC20_BALANCE_ABI: [
             "function balanceOf(address account) view returns (uint256)",
-            "function decimals() view returns (uint8)"
+            "function decimals() view returns (uint8)",
+            "function approve(address spender, uint256 amount) external returns (bool)",
+            "function allowance(address owner, address spender) view returns (uint256)",
         ],
     },
     // Параметры для API
@@ -178,6 +180,7 @@ export const SELL_TOKEN = 'WETH';
 export const BUY_TOKEN = 'USDC';//'OP';
 
 import {ethers} from 'ethers';
+
 export const provider = new ethers.JsonRpcProvider(RPC,
     undefined,
     {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);

@@ -1,20 +1,17 @@
 import {
-    BUY_TOKEN,
-    CONFIG,
-    getEnv,
-    POOLS,
-    provider,
-    SELL_TOKEN,
-    type SupportedToken,
-    type WalletBalances,
-    WATCH_ADDRESS
-} from "./config.js";
+	BUY_TOKEN,
+	CONFIG,
+	POOLS,
+	provider,
+	SELL_TOKEN,
+	type SupportedToken,
+	type WalletBalances,
+	WATCH_ADDRESS
+} from "../config.js";
 import {ethers, formatUnits} from 'ethers';
 
 import * as LIFI from '@lifi/sdk';
-import readline from 'readline/promises';
 
-export const wallet = await loadWallet(provider);
 const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
 const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
 const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
@@ -156,29 +153,6 @@ export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpc
     console.log(`Текущая цена 1 ETH = ${priceETHinOP.toFixed(6)} OP`);
 
     return priceETHinOP;
-}
-
-export async function loadWallet(provider: ethers.Provider) {
-    const keystoreJson = getEnv('ENCRYPTED_KEY');
-    let password = getEnv('KEY_PASSWORD');
-    if (!password || password === '0') {
-        // Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
-        const rl = readline.createInterface({input: process.stdin, output: process.stdout});
-        password = await rl.question('Введите пароль от кошелька: ');
-        rl.close();
-    }
-
-    try {
-        console.log("Расшифровка...");
-        // Восстанавливаем кошелек
-        const wallet = await ethers.Wallet.fromEncryptedJson(keystoreJson!, password);
-
-        return wallet.connect(provider);
-    } catch (e) {
-        console.log("Неверный пароль!");
-
-        return;
-    }
 }
 
 export async function estimatePriceImpact(
@@ -416,4 +390,10 @@ export async function reportErrorGasSpent(err: any): Promise<void> {
     } else {
         console.log("Не удалось получить квитанцию упавшей транзакции (ошибка до отправки в сеть).");
     }
+}
+
+export function sleep(ms: number): Promise<null> {
+	return new Promise((resolve) => {
+		setTimeout(() => resolve(null), ms)
+	})
 }

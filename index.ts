@@ -1,17 +1,18 @@
-import {CONFIG, getEnv, LENDING, POOLS, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
-import {ethers, formatUnits} from 'ethers';
+import {CONFIG, LENDING, POOLS, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {ethers} from 'ethers';
 
 
-import {estimatePriceImpact, wallet} from './utils.js';
-import {getJumperQuote, get0xQuoteV2, getUniswapPoolPrice, getWalletBalances} from './utils.js';
+import { estimatePriceImpact, sleep } from './utils/utils.js';
+import {getJumperQuote, get0xQuoteV2, getUniswapPoolPrice, getWalletBalances} from './utils/utils.js';
 import {provider} from "./config.js";
-import {
-    getMoonwellData,
-    getMoonwellPositions,
-    borrowMoonwellAsset,
-    supplyMoonwellAsset,
-    repayMoonwellAsset
-} from './moonwellUtils.js';
+import {repayMoonwellAsset} from "./utils/moonwell/repayAsset.js";
+import {borrowMoonwellAsset} from "./utils/moonwell/borrowAsset.js";
+import {getMoonwellPositions} from "./utils/moonwell/getMoonwellPositions.js";
+import {getMoonwellData} from "./utils/moonwell/getMoonwellData.js";
+import {supplyMoonwellAsset} from "./utils/moonwell/supplyMoonwellAsset.js";
+import {wallet} from "./utils/loadWallet.js";
+import {withdrawMoonwellAsset} from "./utils/moonwell/withdrawMoonwellAsset.js";
+
 
 async function main() {
 
@@ -21,20 +22,42 @@ async function main() {
 
 
     // Получаем слепок всех балансов на кошельке
-    const walletBalances = await getWalletBalances() as WalletBalances;
+    let walletBalances = await getWalletBalances() as WalletBalances;
     console.log(walletBalances);
     //await getJumperQuote();
     //await get0xQuoteV2("1.0");
+	await getMoonwellPositions(); // Детальный список позиций + корректировкаQ
+
     if (CONFIG.CHAIN === 'OPT') {
-        const borrowAmount = 120;
-        console.log(await borrowMoonwellAsset('OP', borrowAmount)); // Берем займ - проверено
-        console.log(await repayMoonwellAsset('OP', borrowAmount)); // Отдаем займ - тест
+        const borrowAmount = 546;
+		const supplyAmount = 0.01;
 
-        //await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004); // Вносим залог - проверено
+		if(wallet) {
+			// Берем займ - проверено
+			console.log(await borrowMoonwellAsset('OP', borrowAmount));
 
-        await getMoonwellPositions(); // Детальный список позиций
+			while (true) {
+				await sleep(5000);
+				walletBalances = await getWalletBalances() as WalletBalances;
+				if (walletBalances.ETH.human > 0.01) {
+					await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004);
 
-        //return;
+					break;
+				}
+			}
+		}
+
+		// Отдаем займ - тест
+		//console.log(await repayMoonwellAsset('OP', borrowAmount));
+
+		//console.log(await withdrawMoonwellAsset('ETH', supplyAmount)); // уменьшаем залог залог - проверка
+
+		// Вносим залог - проверено
+		//await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004);
+
+        await getMoonwellPositions(); // Детальный список позиций + корректировка
+
+        return;
 
         await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
         await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);

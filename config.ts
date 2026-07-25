@@ -62,7 +62,7 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN: 'OPT', // 'BASE', // OPT
+    CHAIN:    'BASE', //'OPT', //
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -72,7 +72,7 @@ export const CONFIG: AppConfig = {
     NETWORKS: {
         BASE: {
             ID: "8453",
-            RPC_URL: getEnv('BASE_RPC_URL'),
+            RPC_URL: 'https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
             TOKENS: {
                 WETH: getAddress("0x4200000000000000000000000000000000000006"),
                 USDC: getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
@@ -105,8 +105,18 @@ export const CONFIG: AppConfig = {
             "function symbol() view returns (string)",
             "function underlying() view returns (address)",
             "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)",
-            "function borrow(uint256 borrowAmount) external",
-            "function repayBorrow(uint256 repayAmount) external returns (uint256)",
+
+			/** @see supplyMoonwellAsset применение разных методов в зависимости от токена и сети*/
+			// "function mint(uint256 mintAmount) external returns (uint256)", // Для ETH/OPT
+			// "function mint() external payable", // Для ETH/Base
+			// "function mint(uint256 mintAmount) external returns (uint256)", // Для НЕ ETH
+
+			/** @see withdrawMoonwellAsset применение разных методов в зависимости от токена и сети*/
+			// "function redeemUnderlying(address recipient, uint256 redeemAmount) external returns (uint256)", // withdraw ETH/OPT
+			// "function redeemUnderlying(uint256 redeemAmount) external", // withdraw НЕ ETH
+
+			"function borrow(uint256 borrowAmount) external", // borrow
+            "function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
             "function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
         ],
         UNISWAP: [
@@ -240,3 +250,4 @@ export interface WalletBalances {
     };
 }
 
+export const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];

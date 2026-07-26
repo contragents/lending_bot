@@ -1,5 +1,5 @@
 import { ethers, formatUnits } from "ethers";
-import {CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import { CONFIG, currentNetwork, MOONWELL_MARKETS, provider, type SupportedToken } from "../../config.js";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 
@@ -105,14 +105,8 @@ export async function withdrawMoonwellAsset_old(
 				"function redeemUnderlying(address recipient, uint256 redeemAmount) external returns (uint256)",
 			];
 
-			// ABI для оригинального mToken (mWETH), чтобы сделать Approve роутеру
-			const mTokenApproveAbi = [
-				"function approve(address spender, uint256 amount) external returns (bool)",
-				"function allowance(address owner, address spender) view returns (uint256)"
-			];
-
 			// Инициализируем контракт mWETH (mToken Address для эфира) с ABI для аппрува
-			const mWethContract = new ethers.Contract(mTokenAddress, mTokenApproveAbi, wallet);
+			const mWethContract = new ethers.Contract(mTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
 
 			console.log(`Проверяем разрешения для роутера на списание ваших mWETH...`);
 			// Запрашиваем лимит. При выводе 0.01 ETH спишется чуть меньше или больше mWETH (из-за exchangeRate),

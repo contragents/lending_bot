@@ -62,7 +62,7 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN:    'BASE', //'OPT', //
+    CHAIN:    'OPT', //'BASE', //
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -133,6 +133,9 @@ export const CONFIG: AppConfig = {
         ],
         UNISWAP_ROUTER: [
             "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)",
+			"function exactInput((bytes path, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum)) external returns (uint256 amountOut)",
+			"function unwrapWETH9(uint256 amountMinimum, address recipient) external payable",
+			"function multicall(bytes[] data) external payable returns (bytes[] memory results)",
         ],
         // Нам нужен стандартный минимальный ABI для работы с ERC-20 токенами
         ERC20_BALANCE_ABI: [

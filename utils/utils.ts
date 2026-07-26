@@ -137,6 +137,12 @@ export async function get0xQuoteV2(amountInEth: string) {
     }
 }
 
+/**
+ * Возвращает стоимость ETH в OP (эфир в оптимизмах)
+ *
+ * @param pool
+ * @param provider
+ */
 export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider) {
     const poolFee = pool === POOLS.OPT.EthOp005 ? "0.05" : "0.3";
 

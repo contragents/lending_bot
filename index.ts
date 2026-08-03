@@ -30,7 +30,7 @@ async function main() {
 	await getMoonwellPositions(); // Детальный список позиций + корректировкаQ
 
 	if (CONFIG.CHAIN === 'OPT') {
-		const borrowAmount = 100;
+		const borrowAmount = 842;
 		const supplyAmount = 0.01;
 
 		if (wallet) {
@@ -44,26 +44,29 @@ async function main() {
 
 			while (true) {
 				await sleep(5000);
-				walletBalances = await getWalletBalances() as WalletBalances;
+				try {
+					walletBalances = await getWalletBalances() as WalletBalances;
 
-				if(walletBalances.ETH.human > hasEth) {
-					console.log('ETH от обмена поступил на баланс кошелька');
-					break;
+					if (walletBalances.ETH.human > hasEth) {
+						console.log('ETH от обмена поступил на баланс кошелька');
+
+						break;
+					}
+
+					if (walletBalances.OP.human < borrowAmount) {
+						console.log("Ожидается поступление OP на баланс кошелька....");
+
+						continue;
+					}
+
+
+					let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+					quote = 1 / quote;
+
+					console.log(await swapToEth("OP", borrowAmount, quote));
+				} catch (e) {
+					console.log(e);
 				}
-
-
-				if(walletBalances.OP.human < borrowAmount) {
-					console.log("Ожидается поступление OP на баланс кошелька....");
-
-					continue;
-				}
-
-
-
-				let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
-				quote = 1 / quote;
-
-				console.log(await swapToEth("OP", borrowAmount, quote));
 			}
 
 			while (true) {

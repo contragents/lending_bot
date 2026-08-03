@@ -15,12 +15,6 @@ export async function swapToEth(
 	amountHuman: number,
 	quote: number
 ): Promise<boolean> {
-// 1. Настройка подключения и кошелька
-	//const RPC_URL = "https://optimism.io";
-	//const PRIVATE_KEY = "ВАШ_ПРИВАТНЫЙ_КЛЮЧ";
-	//const provider = new ethers.JsonRpcProvider(RPC_URL);
-	//const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-
 // 2. Адреса из вашей транзакции
 	const SWAP_ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";// "0x8B844f885672f333Bc0042cB669255f93a4C1E6b"; // Контракт из лога
 	// const OP_TOKEN_ADDRESS = "0x4200000000000000000000000000000000000042";     // Токен OP
@@ -31,7 +25,7 @@ export async function swapToEth(
 
 	async function main() {
 		const amountIn = ethers.parseUnits(amountHuman + '', 18);       // 546 OP
-		const amountOutMin = ethers.parseUnits(quote * amountHuman * 0.995 + '', 18);   // Минимальный ETH (защита от проскальзывания)
+		const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.995).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
 		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, wallet);

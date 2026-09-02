@@ -25,7 +25,7 @@ export async function swapToEth(
 
 	async function main() {
 		const amountIn = ethers.parseUnits(amountHuman + '', 18);       // 546 OP
-		const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.995).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
+		const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.99).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
 		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, wallet);

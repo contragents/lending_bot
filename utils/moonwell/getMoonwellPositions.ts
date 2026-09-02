@@ -62,6 +62,14 @@ export async function getMoonwellPositions() {
 				console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
 				params.set('borrow_' + userConfig.PAIR_IDS[underlyingSymbol as keyof typeof userConfig.PAIR_IDS], formattedBorrow);
 			}
+
+			const [formattedSupplyAPY, formattedBorrowAPY] = await calculateMoonwellAPY(mToken);
+
+			if (borrowBalance > 0n) {
+				console.log(`Borrow APY: ${formattedBorrowAPY}`);
+			} else {
+				console.log(`Supply APY: ${formattedSupplyAPY}`);
+			}
 		}
 
 		const response = await fetch(url.href);
@@ -69,5 +77,44 @@ export async function getMoonwellPositions() {
 		console.log(url.href, text); // Выведет чистый текст ответа
 	} catch (err: any) {
 		console.error("Ошибка при получении позиций Moonwell:", err.message);
+	}
+}
+
+/**
+ * Получает текущие ставки Supply APY и Borrow APY для конкретного рынка Moonwell (Optimism/Base)
+ * @param mToken Инстанс контракта ethers.Contract для конкретного mToken
+ * @returns Массив строк [formattedSupplyAPY, formattedBorrowAPY]
+ */
+export async function calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]> {
+	try {
+		// 5. Определение процентной ставки по токену
+		// 5.1. Запрашиваем rate per block напрямую из контракта mToken
+		const borrowRatePerTimestamp: bigint = await withRetry<bigint>(() =>
+			(mToken as any).borrowRatePerTimestamp()
+		);
+		const supplyRatePerTimestamp: bigint = await withRetry<bigint>(() =>
+			(mToken as any).supplyRatePerTimestamp()
+		);
+
+		// 5.2. Переводим BigInt в обычное дробное число (деля на 1e18)
+		const borrowRatePerSecond = Number(borrowRatePerTimestamp) / 1e18;
+		const supplyRatePerSecond = Number(supplyRatePerTimestamp) / 1e18;
+
+		// 3. Расчет APY по формуле сложного процента (Compounding) за 365 дней
+		const SECONDS_PER_YEAR = 365 * 24 * 60 * 60; // 31536000 секунд
+
+		// Формула: (1 + rate_per_second)^seconds_per_year - 1
+		const supplyAPY = (Math.pow(1 + supplyRatePerSecond, SECONDS_PER_YEAR) - 1) * 100;
+		const borrowAPY = (Math.pow(1 + borrowRatePerSecond, SECONDS_PER_YEAR) - 1) * 100;
+
+		const formattedSupplyAPY = supplyAPY.toFixed(2);
+		const formattedBorrowAPY = borrowAPY.toFixed(2);
+
+		// 4. Возвращаем массив с округлением до 2 знаков после запятой
+		return [formattedSupplyAPY, formattedBorrowAPY];
+	} catch (error: any) {
+		console.error(`Ошибка при расчете APY для токена:`, error.message);
+		// Возвращаем дефолтные нули в случае непредвиденного сбоя, чтобы не ломать основной цикл
+		return ["0.00", "0.00"];
 	}
 }

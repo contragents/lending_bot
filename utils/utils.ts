@@ -49,10 +49,13 @@ export async function withRetry<T>(
 }
 
 // Инициализация LI.FI SDK
-LIFI.createConfig({
-    integrator: 'lifi',
-    // здесь можно добавить настройки чейнов, если нужно
-});
+// Не используется в настоящее время
+if(false) {
+	LIFI.createConfig({
+		integrator: 'lifi',
+		// здесь можно добавить настройки чейнов, если нужно
+	});
+}
 
 export async function getJumperQuote() {
     console.log(`--- JUMPER (LIFI) Quote (${CONFIG.CHAIN}) ---`);

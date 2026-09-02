@@ -30,52 +30,68 @@ async function main() {
 	await getMoonwellPositions(); // Детальный список позиций + корректировкаQ
 
 	if (CONFIG.CHAIN === 'OPT') {
-		const borrowAmount = 842;
+		const borrowAmount = 1041;
 		const supplyAmount = 0.01;
 
 		if (wallet) {
 			walletBalances = await getWalletBalances() as WalletBalances;
-			if(walletBalances.OP.human < borrowAmount) {
-				// Берем займ - проверено
-				console.log(await borrowMoonwellAsset('OP', borrowAmount));
+
+			// Заходим в цикл займ-обмен только если эфира мало, иначе сразу супплаим весь эфир
+			if(walletBalances.ETH.human < 0.01) {
+				if (walletBalances.OP.human < borrowAmount) {
+					// Берем займ - проверено
+					console.log(await borrowMoonwellAsset('OP', borrowAmount));
+				}
+
+				const hasEth = walletBalances.ETH.human;
+
+				while (true) {
+					await sleep(5000);
+					try {
+						walletBalances = await getWalletBalances() as WalletBalances;
+
+						if (walletBalances.ETH.human > hasEth) {
+							console.log('ETH от обмена поступил на баланс кошелька');
+
+							break;
+						}
+
+						if (walletBalances.OP.human < borrowAmount) {
+							console.log("Ожидается поступление OP на баланс кошелька....");
+
+							continue;
+						}
+
+
+						let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+						quote = 1 / quote;
+
+						console.log(await swapToEth("OP", walletBalances.OP.human, quote));
+					} catch (e) {
+						console.log(e);
+					}
+				}
 			}
 
-			const hasEth = walletBalances.ETH.human;
-
+			let status = 'waitForEth';
 			while (true) {
 				await sleep(5000);
+
 				try {
 					walletBalances = await getWalletBalances() as WalletBalances;
-
-					if (walletBalances.ETH.human > hasEth) {
-						console.log('ETH от обмена поступил на баланс кошелька');
+					if (walletBalances.ETH.human > 0.01) {
+						status = 'trySupply';
+						await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004);
 
 						break;
 					}
 
-					if (walletBalances.OP.human < borrowAmount) {
-						console.log("Ожидается поступление OP на баланс кошелька....");
-
-						continue;
+					// Проверяем, вдруг транзакция supply выполнилась с задержкой
+					if(status ==='trySupply' && walletBalances.ETH.human < 0.01) {
+						break;
 					}
-
-
-					let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
-					quote = 1 / quote;
-
-					console.log(await swapToEth("OP", borrowAmount, quote));
 				} catch (e) {
 					console.log(e);
-				}
-			}
-
-			while (true) {
-				await sleep(5000);
-				walletBalances = await getWalletBalances() as WalletBalances;
-				if (walletBalances.ETH.human > 0.01) {
-					await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004);
-
-					break;
 				}
 			}
 		}

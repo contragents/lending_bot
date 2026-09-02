@@ -72,7 +72,7 @@ export const CONFIG: AppConfig = {
     NETWORKS: {
         BASE: {
             ID: "8453",
-            RPC_URL: 'https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
+            RPC_URL: 'https://mainnet.base.org', //https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
             TOKENS: {
                 WETH: getAddress("0x4200000000000000000000000000000000000006"),
                 USDC: getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
@@ -86,7 +86,7 @@ export const CONFIG: AppConfig = {
         },
         OPT: {
             ID: "10",
-            RPC_URL: getEnv('OPTIMISM_RPC_URL'),
+            RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
             TOKENS: {
                 WETH: getAddress("0x4200000000000000000000000000000000000006"),
                 USDC: getAddress("0x0b2c639c533813f4aa9d7837caf62653d097ff85"),
@@ -118,6 +118,10 @@ export const CONFIG: AppConfig = {
 			"function borrow(uint256 borrowAmount) external", // borrow
             "function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
             "function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
+			// "function supplyRatePerBlock() view returns (uint256)", //
+			// "function borrowRatePerBlock() view returns (uint256)", //
+			"function borrowRatePerTimestamp() view returns (uint256)",
+			"function supplyRatePerTimestamp() view returns (uint256)",
         ],
         UNISWAP: [
             "function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)",

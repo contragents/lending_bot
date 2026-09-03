@@ -196,14 +196,23 @@ export const RPC = CONFIG.NETWORKS[CONFIG.CHAIN].RPC_URL;
 export const SELL_TOKEN = 'WETH';
 export const BUY_TOKEN = 'USDC';//'OP';
 
-import {ethers} from 'ethers';
+import {ethers, FetchRequest} from 'ethers';
 
+const connection = new FetchRequest(RPC);
+connection.timeout = 5000; // Таймаут 5 секунд
+
+export const provider = new ethers.JsonRpcProvider(
+    connection,
+    undefined,
+    { batchMaxCount: 1 } // Ваши настройки батча
+);
+
+/* Версия без timeout
 export const provider = new ethers.JsonRpcProvider(RPC,
     undefined,
     {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);
 );
-
-// config.ts
+*/
 
 export const MOONWELL_MARKETS = {
     OPT: {

@@ -13,26 +13,45 @@ import { supplyMoonwellAsset } from "./utils/moonwell/supplyMoonwellAsset.js";
 import { wallet } from "./utils/loadWallet.js";
 import { withdrawMoonwellAsset } from "./utils/moonwell/withdrawMoonwellAsset.js";
 import { swapEthToOp, swapToEth } from "./utils/uniswap/swap.js";
+import { fetchLendingInstruction } from "./utils/invest_legal/recommend.js";
 
 
 async function main() {
+	let borrowAmount = 0; // подлупка в токенах займа (OP)
+	let supplyAmount = 0; // разлупка в токенах займа (OP)
+	let borrowedToken = 'OP';
 
-
-	await getMoonwellData(); // Общий статус
-	//await getMoonwellPositions(); // Детальный список позиций
-
+	await getMoonwellPositions(); // Детальный список позиций + корректировка
 
 	// Получаем слепок всех балансов на кошельке
 	let walletBalances = await getWalletBalances() as WalletBalances;
 	console.log(walletBalances);
-	//await getJumperQuote();
-	//await get0xQuoteV2("1.0");
-	await getMoonwellPositions(); // Детальный список позиций + корректировкаQ
+
+	const data = await fetchLendingInstruction(4);
+
+	if (data.deloop) {
+		console.log("Получены данные для де-лупа:", data.deloop);
+
+		const entries = Object.entries(data.deloop);
+
+		if (entries.length > 0) {
+			[borrowedToken, supplyAmount] = entries[0]!;
+		}
+	} else if (data.loop) {
+		console.log("Получены данные для лупа:", data.loop);
+		const entries = Object.entries(data.loop);
+
+		if (entries.length > 0) {
+			[borrowedToken, borrowAmount] = entries[0]!;
+		}
+	} else {
+		console.log("Данные отсутствуют или произошла ошибка (вернулся пустой объект)");
+	}
+
+	console.log(`Имя токена: ${borrowedToken}`);
+	console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
 	if (CONFIG.CHAIN === 'OPT') {
-		const borrowAmount = 0; // в OP
-		const supplyAmount = 100; // в OP
-
 		if (wallet) {
 			if (borrowAmount) {
 				await loop(borrowAmount);
@@ -40,25 +59,18 @@ async function main() {
 				await deLoop(supplyAmount);
 			}
 
+			await getMoonwellPositions(); // Детальный список позиций + корректировка
 		}
-
-		// Отдаем займ - тест
-		//console.log(await repayMoonwellAsset('OP', borrowAmount));
-
-		//console.log(await withdrawMoonwellAsset('ETH', supplyAmount)); // уменьшаем залог залог - проверка
-
-		// Вносим залог - проверено
-		//await supplyMoonwellAsset('ETH', (walletBalances['ETH']?.human ?? 0) - 0.004);
-
-		await getMoonwellPositions(); // Детальный список позиций + корректировка
-
-		return;
-
-		await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
-		await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);
-		await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
-		await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
 	}
+
+	return;
+	// await getMoonwellData(); // Общий статус, сколько можно занять в USD
+	//await getJumperQuote();
+	//await get0xQuoteV2("1.0");
+	//await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+	//await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);
+	//await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
+	//await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
 }
 
 async function deLoop(supplyAmount: number){

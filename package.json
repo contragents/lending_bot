@@ -20,6 +20,7 @@
   "description": "",
   "dependencies": {
     "@lifi/sdk": "^3.16.3",
+    "axios": "^1.20.0",
     "dotenv": "^17.4.2",
     "ethers": "6.16.0",
     "ts-node": "^10.9.2",

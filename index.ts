@@ -135,7 +135,7 @@ async function deLoop(supplyAmount: number) {
             }
 
             // Проверяем, вдруг транзакция repay выполнилась с задержкой
-            if (status === 'tryRepay' && walletBalances.OP.human < 50) {
+            if (status === 'tryRepay' && walletBalances.OP.human < 10) {
                 break;
             }
         } catch (e) {

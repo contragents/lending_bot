@@ -21,36 +21,38 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
 
 // ФУНКЦИЯ ПАРСИНГА (Выполняется прямо внутри страницы Hyperliquid)
 function parseHLPositions() {
-    // Находим все строки таблицы позиций. В интерфейсе HL они лежат в блоке с классами строк таблицы
     const rows = document.querySelectorAll('tr');
     let extracted = [];
 
     rows.forEach(row => {
-        // Ищем ячейки. В HL тикер обычно в первой ячейке, позиция/размер далее
         const cells = row.querySelectorAll('td');
+        // Проверяем, что это реальная строка с позицией (в HL обычно много колонок)
         if (cells.length >= 4) {
-            const assetText = cells[0].innerText; // Пример: "OP Perps" или "OP"
-            const sizeText = cells[1].innerText;  // Объём в токенах и долларах
+            const assetText = cells[0]?.innerText; // Первая ячейка — тикер (например, "OP")
+            const sizeText = cells[1]?.innerText;  // Вторая ячейка — размер и доллары
 
-            // Отсекаем служебные строки таблицы
-            if (assetext && sizeText && (sizeText.includes('\(') \vert{}\vert{} cells[3].innerText.includes('\)'))) {
-                // Определяем направление лонг/шорт по цвету шрифта или тексту (у HL зеленый/красный цвет текста для Long/Short)
+            // Отсекаем служебные строки (заголовки и пустые строки)
+            if (assetText && sizeText && (sizeText.includes('(') || sizeText.includes(')'))) {
+
+                // Определяем направление лонг/шорт по цвету или знаку минуса в размере
                 let side = 'long';
-                if (cells[1].innerHTML.includes('color: rgb(234, 67, 53)') || cells[1].innerHTML.includes('red') || cells[0].innerText.includes('-') || cells[1].innerText.includes('-')) {
+                if (cells[1].innerHTML.includes('color: rgb(234, 67, 53)') || sizeText.includes('-')) {
                     side = 'short';
                 }
 
                 // Извлекаем чистые доллары из колонки размера или Notional Value
-                // Ищем строку с символом "\$"
                 let usdValue = 0;
                 cells.forEach(c => {
-                    if (c.innerText.includes('\$')) {
-                        const matches = c.innerText.match(/\$?([\d,]+\.\d+)/);
-                        if (matches) usdValue = parseFloat(matches[1].replace(/,/g, ''));
+                    if (c.innerText.includes('$')) {
+                        // Очищаем строку от знака $, запятых и скобок
+                        const cleanText = c.innerText.replace(/[^0-9.]/g, '');
+                        const parsed = parseFloat(cleanText);
+                        if (!isNaN(parsed)) usdValue = parsed;
                     }
                 });
 
-                const ticker = assetText.split(' ')[0].replace(/[^a-zA-Z]/g, '');
+                // Чистим имя тикера от лишних слов типа "Perp"
+                const ticker = assetText.split('\n')[0].replace(/[^a-zA-Z0-9]/g, '');
 
                 if (usdValue > 0 && ticker) {
                     extracted.push({ ticker, side, usdValue });
@@ -59,9 +61,10 @@ function parseHLPositions() {
         }
     });
 
-    // Дополнительная очистка от дубликатов, если селектор зацепил лишнее
+    // Убираем дубликаты
     return extracted.filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker && t.side === v.side) === i);
 }
+
 
 // ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ (Выполняется внутри всплывающего окна расширения)
 function renderResults(data) {

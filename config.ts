@@ -169,7 +169,7 @@ export const LENDING = {
     },
     BASE: {
         '294789510': {
-            ID: 2,
+            ID: 5,
             PAIR_IDS: {
                 OP: 122,
                 USDC: 100,

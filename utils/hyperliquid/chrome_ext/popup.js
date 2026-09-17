@@ -21,50 +21,51 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
 
 // ФУНКЦИЯ ПАРСИНГА (Выполняется прямо внутри страницы Hyperliquid)
 function parseHLPositions() {
+    // 🔥 ВАШ МАССИВ ЛОНГОВ. Всё, чего здесь нет, автоматически запишется в шорты!
+    const LONG_TOKENS = ['ETH', 'BTC', 'HYPE'];
+
     const rows = document.querySelectorAll('tr');
     let extracted = [];
 
     rows.forEach(row => {
         const cells = row.querySelectorAll('td');
-        // Проверяем, что это реальная строка с позицией (в HL обычно много колонок)
-        if (cells.length >= 4) {
-            const assetText = cells[0]?.innerText; // Первая ячейка — тикер (например, "OP")
-            const sizeText = cells[1]?.innerText;  // Вторая ячейка — размер и доллары
 
-            // Отсекаем служебные строки (заголовки и пустые строки)
-            if (assetText && sizeText && (sizeText.includes('(') || sizeText.includes(')'))) {
+        // В таблице позиций на HL обычно от 7 до 12 колонок
+        if (cells.length >= 6) {
+            const marketText = cells[0]?.innerText || ""; // Первая колонка: "OP 5x", "ETH 20x"
+            const sizeText = cells[1]?.innerText || "";   // Вторая колонка: "1 860,7 OP", "0,1834 ETH"
+            const valueText = cells[2]?.innerText || "";  // Третья колонка: "182,11 USDC"
 
-                // Определяем направление лонг/шорт по цвету или знаку минуса в размере
-                let side = 'long';
-                if (cells[1].innerHTML.includes('color: rgb(234, 67, 53)') || sizeText.includes('-')) {
-                    side = 'short';
+            // Отсекаем служебные строки (заголовки) по наличию ключевого слова USDC или знака валюты
+            if (marketText && valueText && valueText.includes('USDC')) {
+
+                // 1. Извлекаем чистый тикер (берем первое слово из колонки Market, например "OP" из "OP 5x")
+                const rawTicker = marketText.split(' ')[0].trim().toUpperCase();
+                // Дополнительно очищаем от случайных небуквенных символов
+                const ticker = rawTicker.replace(/[^A-Z0-9]/g, '');
+
+                // 2. Извлекаем чистые доллары из колонки Position Value
+                // Заменяем запятую на точку (для русской локализации) и удаляем всё кроме цифр и точки
+                const cleanValue = valueText.replace(',', '.').replace(/[^0-9.]/g, '');
+                const usdValue = parseFloat(cleanValue);
+
+                // 3. ВАША НОВАЯ ЛОГИКА: Определяем направление строго по белому списку активов
+                let side = 'short';
+                if (LONG_TOKENS.includes(ticker)) {
+                    side = 'long';
                 }
 
-                // Извлекаем чистые доллары из колонки размера или Notional Value
-                let usdValue = 0;
-                cells.forEach(c => {
-                    if (c.innerText.includes('$')) {
-                        // Очищаем строку от знака $, запятых и скобок
-                        const cleanText = c.innerText.replace(/[^0-9.]/g, '');
-                        const parsed = parseFloat(cleanText);
-                        if (!isNaN(parsed)) usdValue = parsed;
-                    }
-                });
-
-                // Чистим имя тикера от лишних слов типа "Perp"
-                const ticker = assetText.split('\n')[0].replace(/[^a-zA-Z0-9]/g, '');
-
-                if (usdValue > 0 && ticker) {
+                // Защитная фильтрация от мусора
+                if (usdValue > 0 && ticker && ticker !== 'MARKET' && ticker !== 'TOTAL') {
                     extracted.push({ ticker, side, usdValue });
                 }
             }
         }
     });
 
-    // Убираем дубликаты
+    // Удаляем возможные дубликаты строк
     return extracted.filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker && t.side === v.side) === i);
 }
-
 
 // ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ (Выполняется внутри всплывающего окна расширения)
 function renderResults(data) {

@@ -6,10 +6,12 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         return;
     }
 
+    // Запускаем сбор данных со страницы
     chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: parseHLPositionsWithSpotMetrics
+        func: runFullPortfolioAnalysis
     }, (results) => {
+        console.log(results);
         if (!results || !results[0] || !results[0].result) {
             document.getElementById('results').innerText = "Не удалось прочитать таблицу позиций. Убедитесь, что вкладка 'Positions' открыта в интерфейсе биржи.";
             return;
@@ -19,86 +21,133 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
     });
 });
 
-// СВЕРХНАДЕЖНЫЙ СБОРЩИК МЕТРИК, УСТОЙЧИВЫЙ К РУССКОЙ ЛОКАЛИЗАЦИИ И СИМВОЛАМ
-function parseHLPositionsWithSpotMetrics() {
-    const LONG_TOKENS = ['ETH', 'BTC', 'HYPE'];
-    const rows = document.querySelectorAll('tr');
-    let extracted = [];
 
-    rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
+// ГЛАВНЫЙ ОРКЕСТРАТОР СБОРА ДАННЫХ (Выполняется на странице Hyperliquid)
+function runFullPortfolioAnalysis() {
+    const positionsData = parseHLPositionsWithSpotMetrics();
+    const equityData = parseHLTotalEquity();
 
-        if (cells.length >= 6) {
-            const marketText = cells[0]?.innerText || ""; // "APT 10x"
-            const sizeText = cells[1]?.innerText || "";   // "-292.55 APT"
-            const valueText = cells[2]?.innerText || "";  // "168,51 USDC"
-            const pnlText = cells[5]?.innerText || "";    // "-$5,91 (-25,8%)"
 
-            if (marketText && valueText && valueText.includes('USDC')) {
+// 1. ВАША ПРЕДЫДУЩАЯ СТАБИЛЬНАЯ ФУНКЦИЯ ПАРСИНГА ПОЗИЦИЙ
+    function parseHLPositionsWithSpotMetrics() {
+        const LONG_TOKENS = ['ETH', 'BTC', 'HYPE', 'NEAR'];
+        const rows = document.querySelectorAll('tr');
+        let extracted = [];
 
-                // 1. ИЗВЛЕКАЕМ ТИКЕР И МАКС ПЛЕЧО
-                const marketWords = marketText.trim().split(/\s+/);
-                const rawTicker = marketWords[0].toUpperCase();
-                const ticker = rawTicker.replace(/[^A-Z0-9]/g, '');
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
 
-                let maxLeverage = 1;
-                const levMatch = marketText.match(/(\d+)x/);
-                if (levMatch && levMatch[1]) {
-                    maxLeverage = parseInt(levMatch[1]) || 1;
-                }
+            if (cells.length >= 6) {
+                const marketText = cells[0]?.innerText || "";
+                const sizeText = cells[1]?.innerText || "";
+                const valueText = cells[2]?.innerText || "";
+                const pnlText = cells[5]?.innerText || "";
 
-                // 2. ИЗВЛЕКАЕМ ДОЛЛАРЫ ОБЪЕМА
-                const cleanValue = valueText.replace(',', '.').replace(/[^0-9.]/g, '');
-                const usdValue = parseFloat(cleanValue);
+                if (marketText && valueText && valueText.includes('USDC')) {
+                    const marketWords = marketText.trim().split(/\s+/);
+                    const rawTicker = marketWords[0].toUpperCase();
+                    const ticker = rawTicker.replace(/[^A-Z0-9]/g, '');
 
-                // 3. ПАРСИНГ ПРОЦЕНТА ROE
-                let roePercent = 0;
-                console.log(pnlText);
-                if (pnlText && pnlText.includes('%')) {
-                    // Вытаскиваем текст, который находится внутри круглых скобок
-                    const bracketMatches = pnlText.match(/\(([^)]+)\)/);
+                    let maxLeverage = 1;
+                    const levMatch = marketText.match(/(\d+)x/);
+                    if (levMatch && levMatch[1]) {
+                        maxLeverage = parseInt(levMatch[1]) || 1;
+                    }
 
-                    if (bracketMatches && bracketMatches[1]) {
-                        let insideBrackets = bracketMatches[1]; // Получим "-25,8%" или "+55,7%"
+                    // 2. ИЗВЛЕКАЕМ ДОЛЛАРЫ ОБЪЕМА
+                    const cleanValue = valueText.replace(',', '.').replace(/[^0-9.]/g, '');
+                    const usdValue = parseFloat(cleanValue);
 
-                        // Проверяем, есть ли плюс или зеленый цвет. Если их НЕТ (оператор !), значит это минус!
-                        const hasMinus = !(/[+]/.test(insideBrackets) || pnlText.includes('+') || row.innerHTML.includes('rgb(80, 210, 193)'));
+                    // 3. ПАРСИНГ ПРОЦЕНТА ROE
+                    let roePercent = 0;
+                    if (pnlText && pnlText.includes('%')) {
+                        // Вытаскиваем текст, который находится внутри круглых скобок
+                        const bracketMatches = pnlText.match(/\(([^)]+)\)/);
+                        if (bracketMatches && bracketMatches[1]) {
+                            let insideBrackets = bracketMatches[1]; // Получим "-25,8%" или "+55,7%"
 
-                        // Очищаем строку внутри скобок: меняем запятую на точку и убираем всё кроме цифр и точек
-                        let cleanPnlString = insideBrackets.replace(',', '.').replace(/[^0-9.]/g, '');
-                        let parsedPnl = parseFloat(cleanPnlString);
+                            // Проверяем, есть ли плюс или зеленый цвет. Если их НЕТ (оператор !), значит это минус!
+                            const hasMinus = !(/[+]/.test(insideBrackets) || pnlText.includes('+') || row.innerHTML.includes('rgb(80, 210, 193)'));
 
-                        if (!isNaN(parsedPnl)) {
-                            roePercent = hasMinus ? -parsedPnl : parsedPnl;
+                            // Очищаем строку внутри скобок: меняем запятую на точку и убираем всё кроме цифр и точек
+                            let cleanPnlString = insideBrackets.replace(',', '.').replace(/[^0-9.]/g, '');
+                            let parsedPnl = parseFloat(cleanPnlString);
+
+                            if (!isNaN(parsedPnl)) {
+                                roePercent = hasMinus ? -parsedPnl : parsedPnl;
+                            }
                         }
                     }
+
+                    if (usdValue > 0 && ticker && ticker !== 'MARKET' && ticker !== 'TOTAL') {
+                        let side = 'short';
+                        if (LONG_TOKENS.includes(ticker)) {
+                            side = 'long';
+                        }
+
+                        // 4. ВЫЧИСЛЯЕМ ЧИСТЫЙ СПОТ
+                        let spotChange = roePercent / maxLeverage;
+                        if (side === 'short') {
+                            spotChange = -spotChange;
+                        }
+
+                        extracted.push({ ticker, side, usdValue, spotChange });
+                    }
                 }
+            }
+        });
 
-                if (usdValue > 0 && ticker && ticker !== 'MARKET' && ticker !== 'TOTAL') {
-                    let side = 'short';
-                    if (LONG_TOKENS.includes(ticker)) {
-                        side = 'long';
-                    }
+        return extracted.filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker && t.side === v.side) === i);
+    }
 
-                    // 4. ВЫЧИСЛЯЕМ ЧИСТЫЙ СПОТ
-                    let spotChange = roePercent / maxLeverage;
-                    if (side === 'short') {
-                        spotChange = -spotChange; // Инвертируем для шортов, чтобы рост цены всегда был с плюсом
-                    }
+// 2. ОТДЕЛЬНАЯ ИЗОЛИРОВАННАЯ ФУНКЦИЯ ДЛЯ СБОРА TOTAL EQUITY
+    function parseHLTotalEquity() {
+        let equity = 0;
 
-                    extracted.push({ ticker, side, usdValue, spotChange });
+        // Ищем по всем текстовым элементам на странице
+        const allElements = document.querySelectorAll('div, span, td');
+        for (let el of allElements) {
+            if (el.innerText && (el.innerText.includes('Total Equity') || el.innerText.includes('Trading Equity'))) {
+                const text = el.innerText.replace(',', '.');
+                // Регулярное выражение вытаскивает число после слов Total/Trading Equity
+                const match = text.match(/(?:Total|Trading)\s+Equity\s*[\$]?\s*([0-9.]+)/i);
+                if (match && match[1]) {
+                    equity = parseFloat(match[1]);
+                    break;
                 }
             }
         }
-    });
 
-    return extracted.filter((v, i, a) => a.findIndex(t => t.ticker === v.ticker && t.side === v.side) === i);
+        // Запасной перестраховочный метод парсинга строк таблицы
+        if (equity === 0) {
+            const rows = document.querySelectorAll('tr');
+            rows.forEach(row => {
+                const text = row.innerText.replace(',', '.');
+                if (text.includes('Total Equity') || text.includes('Trading Equity')) {
+                    const numbers = text.match(/[0-9.]+/g);
+                    if (numbers && numbers.length > 0) {
+                        equity = parseFloat(numbers[numbers.length - 1]);
+                    }
+                }
+            });
+        }
+
+        return equity;
+    }
+
+    return {
+        positions: positionsData,
+        totalEquity: equityData
+    };
 }
 
-// ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ
-function renderResults(data) {
+// 3. ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ (С ВЫВОДОМ ПЛЕЧА ДЛЯ КАЖДОЙ СЕКЦИИ)
+function renderResults(resultData) {
     const container = document.getElementById('results');
     container.innerHTML = '';
+
+    const data = resultData.positions;
+    const parsedEquity = resultData.totalEquity;
 
     let longs = [];
     let shorts = [];
@@ -120,6 +169,17 @@ function renderResults(data) {
         return;
     }
 
+    // Считаем независимые плечи для шортов и лонгов от Equity
+    let shortLeverageStr = "0.00x";
+    let longLeverageStr = "0.00x";
+    let totalLeverageStr = "0.00x";
+
+    if (parsedEquity > 0) {
+        shortLeverageStr = (totalShortUSD / parsedEquity).toFixed(2) + "x";
+        longLeverageStr = (totalLongUSD / parsedEquity).toFixed(2) + "x";
+        totalLeverageStr = ((totalShortUSD + totalLongUSD) / parsedEquity).toFixed(2) + "x";
+    }
+
     // Находим самый быстрорастущий щиток на споте среди шортов
     let fastestGrowingShort = null;
     let maxShortGrowth = -Infinity;
@@ -130,8 +190,8 @@ function renderResults(data) {
         }
     });
 
-    // Рендерим Шорты
-    let shortHtml = `<div class="section"><b class="red">🔴 ШОРТЫ (Всего: $${totalShortUSD.toFixed(2)})</b>`;
+    // Вывод Шортов с плечом секции
+    let shortHtml = `<div class="section"><b class="red">🔴 ШОРТЫ (Всего: $${totalShortUSD.toFixed(2)}, Плечо: ${shortLeverageStr})</b>`;
     shorts.forEach(p => {
         const share = totalShortUSD > 0 ? (p.usdValue / totalShortUSD) * 100 : 0;
         const spotSign = p.spotChange >= 0 ? '+' : '';
@@ -146,8 +206,8 @@ function renderResults(data) {
     });
     shortHtml += `</div>`;
 
-    // Рендерим Лонги
-    let longHtml = `<div class="section"><b class="green">🟢 ЛОНГИ (Всего: $${totalLongUSD.toFixed(2)})</b>`;
+    // Вывод Лонгов с плечом секции
+    let longHtml = `<div class="section"><b class="green">🟢 ЛОНГИ (Всего: $${totalLongUSD.toFixed(2)}, Плечо: ${longLeverageStr})</b>`;
     longs.forEach(p => {
         const share = totalLongUSD > 0 ? (p.usdValue / totalLongUSD) * 100 : 0;
         const spotSign = p.spotChange >= 0 ? '+' : '';

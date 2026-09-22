@@ -1,3 +1,13 @@
+// =========================================================================
+// 1. ЕДИНАЯ ГЛОБАЛЬНАЯ НАСТРОЙКА ТОКЕНОВ ДЛЯ ВСЕГО СKРИПТА
+// =========================================================================
+const LONG_TOKENS = [
+    { name: 'ETH', pct: 70 },
+    { name: 'BTC', pct: 15 },
+    { name: 'HYPE', pct: 7.5 },
+    { name: 'NEAR', pct: 7.5 }
+];
+
 document.getElementById('analyzeBtn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -6,10 +16,11 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         return;
     }
 
-    // Запускаем сбор данных со страницы
+    // Запускаем сбор данных со страницы и ПЕРЕДАЕМ наш глобальный массив в args
     chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: runFullPortfolioAnalysis
+        func: runFullPortfolioAnalysis,
+        args: [LONG_TOKENS] // Массив передается первым аргументом в функцию runFullPortfolioAnalysis
     }, (results) => {
         console.log(results);
         if (!results || !results[0] || !results[0].result) {
@@ -23,14 +34,13 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
 
 
 // ГЛАВНЫЙ ОРКЕСТРАТОР СБОРА ДАННЫХ (Выполняется на странице Hyperliquid)
-function runFullPortfolioAnalysis() {
-    const positionsData = parseHLPositionsWithSpotMetrics();
+// Принимает переданный массив LONG_TOKENS из попапа
+function runFullPortfolioAnalysis(allowedLongTokens) {
+    const positionsData = parseHLPositionsWithSpotMetrics(allowedLongTokens);
     const equityData = parseHLTotalEquity();
 
-
-// 1. ВАША ПРЕДЫДУЩАЯ СТАБИЛЬНАЯ ФУНКЦИЯ ПАРСИНГА ПОЗИЦИЙ
-    function parseHLPositionsWithSpotMetrics() {
-        const LONG_TOKENS = ['ETH', 'BTC', 'HYPE', 'NEAR'];
+    // 1. ФУНКЦИЯ ПАРСИНГА ПОЗИЦИЙ
+    function parseHLPositionsWithSpotMetrics(tokensList) {
         const rows = document.querySelectorAll('tr');
         let extracted = [];
 
@@ -39,7 +49,6 @@ function runFullPortfolioAnalysis() {
 
             if (cells.length >= 6) {
                 const marketText = cells[0]?.innerText || "";
-                const sizeText = cells[1]?.innerText || "";
                 const valueText = cells[2]?.innerText || "";
                 const pnlText = cells[5]?.innerText || "";
 
@@ -54,22 +63,15 @@ function runFullPortfolioAnalysis() {
                         maxLeverage = parseInt(levMatch[1]) || 1;
                     }
 
-                    // 2. ИЗВЛЕКАЕМ ДОЛЛАРЫ ОБЪЕМА
                     const cleanValue = valueText.replace(',', '.').replace(/[^0-9.]/g, '');
                     const usdValue = parseFloat(cleanValue);
 
-                    // 3. ПАРСИНГ ПРОЦЕНТА ROE
                     let roePercent = 0;
                     if (pnlText && pnlText.includes('%')) {
-                        // Вытаскиваем текст, который находится внутри круглых скобок
                         const bracketMatches = pnlText.match(/\(([^)]+)\)/);
                         if (bracketMatches && bracketMatches[1]) {
-                            let insideBrackets = bracketMatches[1]; // Получим "-25,8%" или "+55,7%"
-
-                            // Проверяем, есть ли плюс или зеленый цвет. Если их НЕТ (оператор !), значит это минус!
+                            let insideBrackets = bracketMatches[1];
                             const hasMinus = !(/[+]/.test(insideBrackets) || pnlText.includes('+') || row.innerHTML.includes('rgb(80, 210, 193)'));
-
-                            // Очищаем строку внутри скобок: меняем запятую на точку и убираем всё кроме цифр и точек
                             let cleanPnlString = insideBrackets.replace(',', '.').replace(/[^0-9.]/g, '');
                             let parsedPnl = parseFloat(cleanPnlString);
 
@@ -81,11 +83,12 @@ function runFullPortfolioAnalysis() {
 
                     if (usdValue > 0 && ticker && ticker !== 'MARKET' && ticker !== 'TOTAL') {
                         let side = 'short';
-                        if (LONG_TOKENS.includes(ticker)) {
+
+                        // ПРОВЕРКА: Ищем совпадение тикера по массиву объектов через .some()
+                        if (tokensList.some(token => token.name === ticker)) {
                             side = 'long';
                         }
 
-                        // 4. ВЫЧИСЛЯЕМ ЧИСТЫЙ СПОТ
                         let spotChange = roePercent / maxLeverage;
                         if (side === 'short') {
                             spotChange = -spotChange;
@@ -141,7 +144,7 @@ function runFullPortfolioAnalysis() {
     };
 }
 
-// 3. ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ (С ВЫВОДОМ ПЛЕЧА ДЛЯ КАЖДОЙ СЕКЦИИ)
+// 3. ФУНКЦИЯ ОТРИСОВКИ РЕЗУЛЬТАТОВ (Использует глобальный LONG_TOKENS)
 function renderResults(resultData) {
     const container = document.getElementById('results');
     container.innerHTML = '';
@@ -169,15 +172,12 @@ function renderResults(resultData) {
         return;
     }
 
-    // Считаем независимые плечи для шортов и лонгов от Equity
     let shortLeverageStr = "0.00x";
     let longLeverageStr = "0.00x";
-    let totalLeverageStr = "0.00x";
 
     if (parsedEquity > 0) {
         shortLeverageStr = (totalShortUSD / parsedEquity).toFixed(2) + "x";
         longLeverageStr = (totalLongUSD / parsedEquity).toFixed(2) + "x";
-        totalLeverageStr = ((totalShortUSD + totalLongUSD) / parsedEquity).toFixed(2) + "x";
     }
 
     // Находим самый быстрорастущий щиток на споте среди шортов
@@ -190,7 +190,7 @@ function renderResults(resultData) {
         }
     });
 
-    // Вывод Шортов с плечом секции
+    // Отрендерим Шорты
     let shortHtml = `<div class="section"><b class="red">🔴 ШОРТЫ (Всего: $${totalShortUSD.toFixed(2)}, Плечо: ${shortLeverageStr})</b>`;
     shorts.forEach(p => {
         const share = totalShortUSD > 0 ? (p.usdValue / totalShortUSD) * 100 : 0;
@@ -206,7 +206,7 @@ function renderResults(resultData) {
     });
     shortHtml += `</div>`;
 
-    // Вывод Лонгов с плечом секции
+    // Отрендерим Лонги
     let longHtml = `<div class="section"><b class="green">🟢 ЛОНГИ (Всего: $${totalLongUSD.toFixed(2)}, Плечо: ${longLeverageStr})</b>`;
     longs.forEach(p => {
         const share = totalLongUSD > 0 ? (p.usdValue / totalLongUSD) * 100 : 0;
@@ -226,14 +226,9 @@ function renderResults(resultData) {
     let totalLongAddUSD = idealLongTotal - totalLongUSD;
     if (totalLongAddUSD < 0) totalLongAddUSD = 0;
 
-    const ethOrder = totalLongAddUSD * 0.70;
-    const btcOrder = totalLongAddUSD * 0.15;
-    const hypeOrder = totalLongAddUSD * 0.15;
-
     let calculatorHtml = '';
     if (totalLongAddUSD > 0) {
         let toxicAlertHtml = '';
-        // Если лидер спотового роста имеет положительный процент, подсвечиваем его
         if (fastestGrowingShort && fastestGrowingShort.spotChange > 0) {
             toxicAlertHtml = `
             <div style="font-size: 11px; color: #ff9800; margin-top: 6px; border-top: 1px dashed #444; padding-top: 4px;">
@@ -243,21 +238,13 @@ function renderResults(resultData) {
         `;
         }
 
-        // Настройки распределения долей для каждого токена
-        const LONG_TOKENS = [
-            { name: 'ETH', pct: 70},
-            { name: 'BTC', pct: 15},
-            { name: 'HYPE', pct: 7.5},
-            { name: 'NEAR', pct: 7.5},
-        ];
-
-// Генерация строк для каждого токена в цикле
+        // Цикл теперь использует глобальный массив LONG_TOKENS напрямую из шапки файла
         const tokensHtml = LONG_TOKENS.map(token => `
-  <div class="row" style="font-size: 12px; ${token.name === LONG_TOKENS[0].name ? 'margin-top: 4px; border-top: 1px solid #243a2b; padding-top: 4px;' : ''}">
-    <span>[${token.name}-PERP] Докупить на:</span>
-    <b>$${(token.pct / 100 * totalLongAddUSD).toFixed(2)} <span class="pct">(${token.pct}%)</span></b>
-  </div>
-`).join('');
+          <div class="row" style="font-size: 12px; ${token.name === LONG_TOKENS[0].name ? 'margin-top: 4px; border-top: 1px solid #243a2b; padding-top: 4px;' : ''}">
+            <span>[${token.name}-PERP] Докупить на:</span>
+            <b>$${(token.pct / 100 * totalLongAddUSD).toFixed(2)} <span class="pct">(${token.pct}%)</span></b>
+          </div>
+        `).join('');
 
 // Финальная сборка шаблон
         calculatorHtml = `

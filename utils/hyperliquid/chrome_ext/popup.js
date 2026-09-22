@@ -243,28 +243,33 @@ function renderResults(resultData) {
         `;
         }
 
+        // Настройки распределения долей для каждого токена
+        const LONG_TOKENS = [
+            { name: 'ETH', pct: 70},
+            { name: 'BTC', pct: 15},
+            { name: 'HYPE', pct: 7.5},
+            { name: 'NEAR', pct: 7.5},
+        ];
+
+// Генерация строк для каждого токена в цикле
+        const tokensHtml = LONG_TOKENS.map(token => `
+  <div class="row" style="font-size: 12px; ${token.name === LONG_TOKENS[0].name ? 'margin-top: 4px; border-top: 1px solid #243a2b; padding-top: 4px;' : ''}">
+    <span>[${token.name}-PERP] Докупить на:</span>
+    <b>$${(token.pct / 100 * totalLongAddUSD).toFixed(2)} <span class="pct">(${token.pct}%)</span></b>
+  </div>
+`).join('');
+
+// Финальная сборка шаблон
         calculatorHtml = `
-        <div class="section" style="border: 1px solid #47b970; background: #132219;">
-            <b class="green">⚠️ СИГНАЛ ПОДЛУПОК ЛОНГОВ</b>
-            <div class="row" style="margin-top: 6px; font-weight: bold;">
-                <span>Общая сумма добора:</span>
-                <span class="green">+$${totalLongAddUSD.toFixed(2)}</span>
-            </div>
-            <div class="row" style="font-size: 12px; margin-top: 4px; border-top: 1px solid #243a2b; padding-top: 4px;">
-                <span>[ETH-PERP] Докупить на:</span>
-                <b>$${ethOrder.toFixed(2)} <span class="pct">(70%)</span></b>
-            </div>
-            <div class="row" style="font-size: 12px;">
-                <span>[BTC-PERP] Докупить на:</span>
-                <b>$${btcOrder.toFixed(2)} <span class="pct">(15%)</span></b>
-            </div>
-            <div class="row" style="font-size: 12px;">
-                <span>[HYPE-PERP] Докупить на:</span>
-                <b>$${hypeOrder.toFixed(2)} <span class="pct">(15%)</span></b>
-            </div>
-            ${toxicAlertHtml}
-        </div>
-    `;
+  <div class="section" style="border: 1px solid #47b970; background: #132219;">
+    <b class="green">⚠️ СИГНАЛ ПОДЛУПОК ЛОНГОВ</b>
+    <div class="row" style="margin-top: 6px; font-weight: bold;">
+      <span>Общая сумма добора:</span>
+      <span class="green">+$${totalLongAddUSD.toFixed(2)}</span>
+    </div>
+    ${tokensHtml}
+    ${toxicAlertHtml}
+  </div>`;
     } else {
         calculatorHtml = `
         <div class="section" style="border: 1px solid #2d3139; background: #17191e; text-align: center; color: #888; font-size: 12px; font-weight: bold;">

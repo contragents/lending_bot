@@ -5,6 +5,7 @@ import {wallet} from "./utils/loadWallet.js";
 import {fetchLendingInstruction} from "./utils/invest_legal/recommend.js";
 import {deLoop} from "./utils/looping/deLoop.js";
 import {loop} from "./utils/looping/loop.js";
+import {getMorphoPositions} from "./utils/morpho/getMorphoPositions.js";
 
 // Глобальный перехватчик неисполненных промисов
 process.on('unhandledRejection', (reason: any, promise) => {
@@ -23,9 +24,14 @@ async function main() {
     let borrowAmount = 0; // подлупка в токенах займа (OP)
     let supplyAmount = 0; // разлупка в токенах займа (OP)
     let borrowedToken = 'OP';
+
+    await getMorphoPositions();
+
+    if (CONFIG.CHAIN !== 'OPT') return;
+
     while (true) {
         try {
-            if(!await getMoonwellPositions()) {
+            if (!await getMoonwellPositions()) {
                 continue;
             }
 

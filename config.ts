@@ -58,6 +58,7 @@ interface AppConfig {
         ORACLE: string[];
         UNISWAP_ROUTER: string[];
         ERC20_BALANCE_ABI: string[];
+        MORPHO: string[];
     };
 }
 
@@ -123,6 +124,10 @@ export const CONFIG: AppConfig = {
 			"function borrowRatePerTimestamp() view returns (uint256)",
 			"function supplyRatePerTimestamp() view returns (uint256)",
         ],
+        MORPHO: [
+            "function position(bytes32 marketId, address user) external view returns (uint128 supplyShares, uint128 borrowShares, uint128 collateral)",
+            "function market(bytes32 marketId) external view returns (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint32 lastUpdate, uint32 fee)"
+        ],
         UNISWAP: [
             "function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)",
             "function liquidity() view returns (uint128)",
@@ -171,12 +176,8 @@ export const LENDING = {
         '294789510': {
             ID: 5,
             PAIR_IDS: {
-                OP: 122,
                 USDC: 100,
-                WETH: 132,
                 cbBTC: 136,
-                MAMO: 134,
-                WELL: 139,
             }
         }
     },
@@ -206,6 +207,20 @@ export const provider = new ethers.JsonRpcProvider(
     undefined,
     { batchMaxCount: 1 } // Ваши настройки батча
 );
+
+// Создаем объект провайдеров для всех поддерживаемых сетей
+export const providers: Record<string, ethers.JsonRpcProvider> = {};
+
+for (const [chainName, networkConfig] of Object.entries(CONFIG.NETWORKS)) {
+    const connection = new FetchRequest(networkConfig.RPC_URL);
+    connection.timeout = 5000;
+
+    providers[chainName] = new ethers.JsonRpcProvider(
+        connection,
+        undefined,
+        { batchMaxCount: 1 }
+    );
+}
 
 /* Версия без timeout
 export const provider = new ethers.JsonRpcProvider(RPC,

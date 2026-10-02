@@ -25,11 +25,13 @@ async function main() {
     let supplyAmount = 0; // разлупка в токенах займа (OP)
     let borrowedToken = 'OP';
 
-    await getMorphoPositions();
 
-    if (CONFIG.CHAIN !== 'OPT') return;
 
     while (true) {
+        await getMorphoPositions();
+
+        if (CONFIG.CHAIN !== 'OPT') return;
+
         try {
             if (!await getMoonwellPositions()) {
                 continue;

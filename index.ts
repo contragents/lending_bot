@@ -25,7 +25,8 @@ async function main() {
     let supplyAmount = 0; // разлупка в токенах займа (OP)
     let borrowedToken = 'OP';
 
-
+    const maxCycles = 100;
+    let cycles = 0;
 
     while (true) {
         await getMorphoPositions();
@@ -77,11 +78,13 @@ async function main() {
 
         } catch (e) {
             console.log(e);
-        } finally {
-            borrowAmount = 0;
-            supplyAmount = 0;
-            await sleep(30000);
         }
+
+        cycles++;
+        if (cycles >= maxCycles) break;
+        borrowAmount = 0;
+        supplyAmount = 0;
+        await sleep(30000);
     }
 
     return;

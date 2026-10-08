@@ -6,6 +6,7 @@ import {fetchLendingInstruction} from "./utils/invest_legal/recommend.js";
 import {deLoop} from "./utils/looping/deLoop.js";
 import {loop} from "./utils/looping/loop.js";
 import {getMorphoPositions} from "./utils/morpho/getMorphoPositions.js";
+import {getHyperliquidPositions} from "./utils/hyperliquid/getHyperliquidPositions.js";
 
 // Глобальный перехватчик неисполненных промисов
 process.on('unhandledRejection', (reason: any, promise) => {
@@ -30,6 +31,7 @@ async function main() {
 
     while (true) {
         await getMorphoPositions();
+        await getHyperliquidPositions();
 
         if (CONFIG.CHAIN !== 'OPT') return;
 

@@ -25,6 +25,33 @@ type ClearinghouseState = {
     }[];
 };
 
+type SpotUserBalances = {
+    balances: SpotTokenBalance[];
+};
+
+type SpotTokenBalance = {
+    coin: string;
+    total: string;
+    hold: string;
+    entryPx: string;
+};
+
+type SpotClearinghouseState = {
+    balances: SpotTokenBalance[];
+};
+
+function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState {
+    return isRecord(value)
+        && Array.isArray(value.balances)
+        && value.balances.every((entry: unknown) =>
+            isRecord(entry)
+            && typeof entry.coin === "string"
+            && isNumericString(entry.total)
+        );
+}
+
+
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
@@ -59,19 +86,31 @@ function isClearinghouseState(value: unknown): value is ClearinghouseState {
             isRecord(entry) && isHyperliquidPosition(entry.position));
 }
 
-async function fetchClearinghouseState(): Promise<unknown> {
+// --- Валидатор для Спота ---
+function isSpotUserBalances(value: unknown): value is SpotUserBalances {
+    return isRecord(value)
+        && Array.isArray(value.balances)
+        && value.balances.every((entry: unknown) =>
+            isRecord(entry)
+            && typeof entry.coin === "string"
+            && isNumericString(entry.total)
+        );
+}
+
+// Универсальный метод для отправки запросов к API info
+async function postToHyperliquidInfo(type: string): Promise<unknown> {
     const response = await fetch(HYPERLIQUID_INFO_URL, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-            type: "clearinghouseState",
+            type: type,
             user: WATCH_ADDRESS,
         }),
         signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
-        throw new Error(`Hyperliquid API returned HTTP ${response.status}`);
+        throw new Error(`Hyperliquid API returned HTTP ${response.status} for type ${type}`);
     }
 
     return response.json();
@@ -82,16 +121,43 @@ export async function getHyperliquidPositions(): Promise<boolean> {
     console.log(`User: ${WATCH_ADDRESS}`);
 
     try {
-        const response = await fetchClearinghouseState();
-        if (!isClearinghouseState(response)) {
+        // Делаем запросы параллельно к правильным эндпоинтам Hyperliquid
+        const [marginRes, spotRes] = await Promise.all([
+            postToHyperliquidInfo("clearinghouseState"),
+            postToHyperliquidInfo("spotClearinghouseState") // <-- ИСПРАВЛЕНО ЗДЕСЬ
+        ]);
+
+        if (!isClearinghouseState(marginRes)) {
             throw new Error("Unexpected Hyperliquid clearinghouse state response");
         }
 
-        console.log(`Total equity: ${response.marginSummary.accountValue} USDC`);
+        if (!isSpotClearinghouseState(spotRes)) { // <-- ИСПРАВЛЕНО ЗДЕСЬ
+            throw new Error("Unexpected Hyperliquid spot clearinghouse state response");
+        }
 
-        const positions = response.assetPositions
+
+
+        // 1. Ищем баланс USDC на споте
+        const usdcSpot = spotRes.balances.find(b => b.coin === "USDC");
+        const totalUsdcSpotValue = usdcSpot ? Number(usdcSpot.total) : 0;
+
+// 2. Считаем суммарный нереализованный PnL по всем фьючерсным позициям
+        const positions = marginRes.assetPositions
             .map(({position}) => position)
             .filter(position => Number(position.szi) !== 0);
+
+        const totalUnrealizedPnl = positions.reduce(
+            (sum, position) => sum + Number(position.unrealizedPnl),
+            0
+        );
+
+        // 3. Вычисляем итоговый Total Equity в стиле веб-интерфейса Hyperliquid
+        const totalEquity = totalUsdcSpotValue + totalUnrealizedPnl;
+
+        console.log(`Total Balance (Site Style): ${totalEquity.toFixed(6)} USDC`);
+        console.log(`  ├─ Spot Wallet Component: ${totalUsdcSpotValue.toFixed(6)} USDC`);
+        console.log(`  └─ Total Perps uPnL: ${totalUnrealizedPnl.toFixed(6)} USDC`);
+
         const longs = positions.filter(position => Number(position.szi) > 0);
         const shorts = positions.filter(position => Number(position.szi) < 0);
 
@@ -123,6 +189,7 @@ export async function getHyperliquidPositions(): Promise<boolean> {
         return true;
     } catch (error) {
         console.error("Ошибка при получении позиций Hyperliquid:", error);
+
         return false;
     }
 }

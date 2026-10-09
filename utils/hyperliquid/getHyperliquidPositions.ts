@@ -2,67 +2,71 @@ import {WATCH_ADDRESS} from "../../config.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 
-type PositionAmount = {
-    basis: string;
-    value: string;
+type HyperliquidPosition = {
+    coin: string;
+    szi: string;
+    leverage: {
+        type: string;
+        value: number;
+    };
+    entryPx: string;
+    positionValue: string;
+    unrealizedPnl: string;
+    liquidationPx: string | null;
+    marginUsed: string;
 };
 
-type BorrowLendTokenState = {
-    borrow: PositionAmount;
-    supply: PositionAmount;
-};
-
-type BorrowLendUserState = {
-    tokenToState: [number, BorrowLendTokenState][];
-    health: string;
-    healthFactor: string | null;
-};
-
-type SpotToken = {
-    index: number;
-    name: string;
+type ClearinghouseState = {
+    marginSummary: {
+        accountValue: string;
+    };
+    assetPositions: {
+        position: HyperliquidPosition;
+    }[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-function isPositionAmount(value: unknown): value is PositionAmount {
-    return isRecord(value)
-        && typeof value.basis === "string"
-        && Number.isFinite(Number(value.basis))
-        && typeof value.value === "string"
-        && Number.isFinite(Number(value.value));
+function isNumericString(value: unknown): value is string {
+    return typeof value === "string" && Number.isFinite(Number(value));
 }
 
-function isBorrowLendUserState(value: unknown): value is BorrowLendUserState {
-    return isRecord(value)
-        && Array.isArray(value.tokenToState)
-        && value.tokenToState.every((entry: unknown) =>
-            Array.isArray(entry)
-            && typeof entry[0] === "number"
-            && isRecord(entry[1])
-            && isPositionAmount(entry[1].borrow)
-            && isPositionAmount(entry[1].supply))
-        && typeof value.health === "string"
-        && (value.healthFactor === null
-            || (typeof value.healthFactor === "string" && Number.isFinite(Number(value.healthFactor))));
+function isHyperliquidPosition(value: unknown): value is HyperliquidPosition {
+    if (!isRecord(value) || !isRecord(value.leverage)) {
+        return false;
+    }
+
+    return typeof value.coin === "string"
+        && isNumericString(value.szi)
+        && typeof value.leverage.type === "string"
+        && typeof value.leverage.value === "number"
+        && Number.isFinite(value.leverage.value)
+        && isNumericString(value.entryPx)
+        && isNumericString(value.positionValue)
+        && isNumericString(value.unrealizedPnl)
+        && (value.liquidationPx === null || isNumericString(value.liquidationPx))
+        && isNumericString(value.marginUsed);
 }
 
-function isSpotMeta(value: unknown): value is { tokens: SpotToken[] } {
+function isClearinghouseState(value: unknown): value is ClearinghouseState {
     return isRecord(value)
-        && Array.isArray(value.tokens)
-        && value.tokens.every((token: unknown) =>
-            isRecord(token)
-            && typeof token.index === "number"
-            && typeof token.name === "string");
+        && isRecord(value.marginSummary)
+        && isNumericString(value.marginSummary.accountValue)
+        && Array.isArray(value.assetPositions)
+        && value.assetPositions.every((entry: unknown) =>
+            isRecord(entry) && isHyperliquidPosition(entry.position));
 }
 
-async function fetchInfo(payload: Record<string, string>): Promise<unknown> {
+async function fetchClearinghouseState(): Promise<unknown> {
     const response = await fetch(HYPERLIQUID_INFO_URL, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+            type: "clearinghouseState",
+            user: WATCH_ADDRESS,
+        }),
         signal: AbortSignal.timeout(10_000),
     });
 
@@ -74,54 +78,46 @@ async function fetchInfo(payload: Record<string, string>): Promise<unknown> {
 }
 
 export async function getHyperliquidPositions(): Promise<boolean> {
-    console.log("--- Hyperliquid Borrow & Lend ---");
+    console.log("--- Hyperliquid Account ---");
     console.log(`User: ${WATCH_ADDRESS}`);
 
     try {
-        const userStateResponse = await fetchInfo({
-            type: "borrowLendUserState",
-            user: WATCH_ADDRESS,
-        });
-        if (!isBorrowLendUserState(userStateResponse)) {
-            throw new Error("Unexpected borrow/lend user state response");
+        const response = await fetchClearinghouseState();
+        if (!isClearinghouseState(response)) {
+            throw new Error("Unexpected Hyperliquid clearinghouse state response");
         }
 
-        const activePositions = userStateResponse.tokenToState.filter(([, state]) =>
-            Number(state.borrow.basis) !== 0
-            || Number(state.borrow.value) !== 0
-            || Number(state.supply.basis) !== 0
-            || Number(state.supply.value) !== 0);
+        console.log(`Total equity: ${response.marginSummary.accountValue} USDC`);
 
-        console.log(`Account health: ${userStateResponse.health}`);
-        if (userStateResponse.healthFactor !== null) {
-            console.log(`Health factor: ${userStateResponse.healthFactor}`);
-        }
+        const positions = response.assetPositions
+            .map(({position}) => position)
+            .filter(position => Number(position.szi) !== 0);
+        const longs = positions.filter(position => Number(position.szi) > 0);
+        const shorts = positions.filter(position => Number(position.szi) < 0);
 
-        if (activePositions.length === 0) {
-            console.log("Позиции lending в Hyperliquid не найдены.");
-            return true;
-        }
+        for (const [side, sidePositions] of [["LONG", longs], ["SHORT", shorts]] as const) {
+            const totalValue = sidePositions.reduce(
+                (sum, position) => sum + Number(position.positionValue),
+                0
+            );
 
-        const spotMetaResponse = await fetchInfo({type: "spotMeta"});
-        if (!isSpotMeta(spotMetaResponse)) {
-            throw new Error("Unexpected Hyperliquid spot metadata response");
-        }
-        const tokenNames = new Map(spotMetaResponse.tokens.map(token => [token.index, token.name]));
+            console.log(`--- ${side} positions (${sidePositions.length}; notional ${totalValue.toFixed(2)} USDC) ---`);
 
-        for (const [tokenId, state] of activePositions) {
-            const tokenName = tokenNames.get(tokenId) ?? `token#${tokenId}`;
-
-            if (Number(state.supply.basis) !== 0 || Number(state.supply.value) !== 0) {
-                console.log(
-                    `🟢 Supply ${tokenName} -> principal ${state.supply.basis}, current ${state.supply.value}`
-                );
+            if (sidePositions.length === 0) {
+                console.log("No open positions.");
+                continue;
             }
 
-            if (Number(state.borrow.basis) !== 0 || Number(state.borrow.value) !== 0) {
-                console.log(
-                    `🔴 Borrow ${tokenName} -> principal ${state.borrow.basis}, current ${state.borrow.value}`
-                );
-            }
+            console.table(sidePositions.map(position => ({
+                coin: position.coin,
+                size: Math.abs(Number(position.szi)),
+                entryPrice: position.entryPx,
+                positionValue: position.positionValue,
+                unrealizedPnl: position.unrealizedPnl,
+                leverage: `${position.leverage.value}x ${position.leverage.type}`,
+                marginUsed: position.marginUsed,
+                liquidationPrice: position.liquidationPx ?? "n/a",
+            })));
         }
 
         return true;

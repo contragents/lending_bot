@@ -1,4 +1,5 @@
 import {WATCH_ADDRESS} from "../../config.js";
+import {transformHyperliquidToLandingModel} from "./transformer.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 
@@ -49,7 +50,6 @@ function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseSta
             && isNumericString(entry.total)
         );
 }
-
 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,7 +136,6 @@ export async function getHyperliquidPositions(): Promise<boolean> {
         }
 
 
-
         // 1. Ищем баланс USDC на споте
         const usdcSpot = spotRes.balances.find(b => b.coin === "USDC");
         const totalUsdcSpotValue = usdcSpot ? Number(usdcSpot.total) : 0;
@@ -185,6 +184,26 @@ export async function getHyperliquidPositions(): Promise<boolean> {
                 liquidationPrice: position.liquidationPx ?? "n/a",
             })));
         }
+
+        // Находим totalEquity по нашей финальной формуле (чистый баланс спота USDC)
+        /// const usdcSpot = spotRes.balances.find(b => b.coin === "USDC");
+        /// const totalEquity = usdcSpot ? Number(usdcSpot.total) : 0;
+
+        // Вызываем трансформер
+        const landingModel = transformHyperliquidToLandingModel({
+            totalEquity,
+            longs,
+            shorts
+        });
+
+// Теперь landingModel.supply и landingModel.borrow содержат готовые массивы
+        console.log("--- Сгенерированная модель для Лендинга ---");
+        console.log("Supply Model (Залоги):", landingModel.supply);
+        console.log("Borrow Model (Займы):", landingModel.borrow);
+
+// Передаем эти списки в ваши существующие калькуляторы нетто-депозита и плеча
+// const myNetEquity = myCalculator.calculateNet(landingModel.supply, landingModel.borrow);
+
 
         return true;
     } catch (error) {

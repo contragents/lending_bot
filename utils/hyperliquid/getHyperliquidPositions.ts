@@ -21,6 +21,7 @@ type ClearinghouseState = {
     marginSummary: {
         accountValue: string;
     };
+    crossMaintenanceMarginUsed: string; // 👈 Добавлено новое системное поле
     assetPositions: {
         position: HyperliquidPosition;
     }[];
@@ -140,7 +141,7 @@ export async function getHyperliquidPositions(): Promise<boolean> {
         const usdcSpot = spotRes.balances.find(b => b.coin === "USDC");
         const totalUsdcSpotValue = usdcSpot ? Number(usdcSpot.total) : 0;
 
-// 2. Считаем суммарный нереализованный PnL по всем фьючерсным позициям
+        // 2. Считаем суммарный нереализованный PnL по всем фьючерсным позициям
         const positions = marginRes.assetPositions
             .map(({position}) => position)
             .filter(position => Number(position.szi) !== 0);
@@ -154,8 +155,23 @@ export async function getHyperliquidPositions(): Promise<boolean> {
         const totalEquity = totalUsdcSpotValue + totalUnrealizedPnl;
 
         console.log(`Total Balance (Site Style): ${totalEquity.toFixed(6)} USDC`);
-        console.log(`  ├─ Spot Wallet Component: ${totalUsdcSpotValue.toFixed(6)} USDC`);
+        console.log(`  ├─ Total Equity: ${totalUsdcSpotValue.toFixed(6)} USDC`);
         console.log(`  └─ Total Perps uPnL: ${totalUnrealizedPnl.toFixed(6)} USDC`);
+
+        // 4. Получаем Maintenance Margin из ответа ноды Hyperliquid
+        const maintenanceMargin = Number(marginRes.crossMaintenanceMarginUsed);
+
+        // 5. Рассчитываем Margin Ratio (уровень риска в процентах)
+        // Формула: (Maintenance Margin / Total Equity) * 100%
+        const marginRatio = totalEquity > 0 ? (maintenanceMargin / totalEquity) * 100 : 0;
+
+        // 6. Считаем чистый долларовый буфер до начала ликвидаций
+        const liquidationBuffer = totalEquity - maintenanceMargin;
+
+        console.log(`--- Риск-Метрики Ликвидации ---`);
+        console.log(`  🚨 Maintenance Margin: ${maintenanceMargin.toFixed(2)} USDC`);
+        console.log(`  📊 Margin Ratio: ${marginRatio.toFixed(2)}% ${marginRatio > 80 ? '🔴 ВНИМАНИЕ!' : '🟢 БЕЗОПАСНО'}`);
+        console.log(`  🛡️ Запас до ликвидации: ${liquidationBuffer.toFixed(2)} USDC`);
 
         const longs = positions.filter(position => Number(position.szi) > 0);
         const shorts = positions.filter(position => Number(position.szi) < 0);
@@ -196,14 +212,10 @@ export async function getHyperliquidPositions(): Promise<boolean> {
             shorts
         });
 
-// Теперь landingModel.supply и landingModel.borrow содержат готовые массивы
+        // Теперь landingModel.supply и landingModel.borrow содержат готовые массивы
         console.log("--- Сгенерированная модель для Лендинга ---");
         console.log("Supply Model (Залоги):", landingModel.supply);
         console.log("Borrow Model (Займы):", landingModel.borrow);
-
-// Передаем эти списки в ваши существующие калькуляторы нетто-депозита и плеча
-// const myNetEquity = myCalculator.calculateNet(landingModel.supply, landingModel.borrow);
-
 
         return true;
     } catch (error) {

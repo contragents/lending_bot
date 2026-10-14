@@ -31,12 +31,6 @@ export async function getMorphoPositions(): Promise<boolean> {
         const userConfig = chainConfig[tgId as keyof typeof chainConfig];
         params.set('lending_id', String(userConfig?.ID ?? ''));
 
-        // 1. Получаем состояние позиции пользователя на конкретном рынке
-        // Возвращает: collateral (залог в cbBTC), borrowShares (доли долга в USDC)
-        //const [collateral, borrowShares] = await withRetry<[bigint, bigint]>(() =>
-          //  (morpho as any).position(MARKET_ID, WATCH_ADDRESS)
-        //);
-
         // 1. Получаем состояние позиции пользователя на конкретном рынке (добавлена переменная supplyShares)
         const [supplyShares, borrowShares, collateral] = await withRetry<[bigint, bigint, bigint]>(() =>
             (morpho as any).position(MARKET_ID, WATCH_ADDRESS)

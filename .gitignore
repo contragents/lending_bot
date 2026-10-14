@@ -149,3 +149,5 @@ vite.config.ts.timestamp-*
 /.idea/php.xml
 /.idea/vcs.xml
 /docs/LLM_history/
+.repomixignore
+.gitignore

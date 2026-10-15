@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import {getAddress} from 'ethers';
+import {ethers, getAddress} from 'ethers';
 
 // Функция-помощник для проверки обязательных переменных
 export const getEnv = (key: string): string => {
@@ -17,11 +17,10 @@ type TokenList = {
     [K in SupportedToken]?: string;
 };
 
-// Создаем массив сетей в рантайме (as const обязателен)
-const CHAINS = ['BASE', 'OPT'] as const;
+// Создаем список сетей в рантайме (as const обязателен)
+export const CHAIN_NAMES = ['OP', 'BASE', 'HL'] as const;
 
-// 2. Генерируем тип 'BASE' | 'OPT' прямо из массива
-type ChainType = typeof CHAINS[number];
+export type ChainType = typeof CHAIN_NAMES[number];
 
 // Описываем структуру Moonwell
 interface MoonwellConfig {
@@ -33,12 +32,11 @@ interface NetworkSettings {
     ID: string;
     RPC_URL: string;
     TOKENS: TokenList;
-    MOONWELL: MoonwellConfig;
+    MOONWELL?: MoonwellConfig;
 }
 
 // Типизируем весь конфиг
 interface AppConfig {
-    CHAIN: ChainType; // Ограничиваем выбор сетей
     TOKEN_DECIMALS:
     // Делаем все токены из списка необязательными (через знак ?)
         { [K in SupportedToken]?: number } &
@@ -63,7 +61,6 @@ interface AppConfig {
 }
 
 export const CONFIG: AppConfig = {
-    CHAIN:    'OPT', //'BASE', //
     TOKEN_DECIMALS: {
         USDC: 6,
         default: 18,
@@ -71,6 +68,18 @@ export const CONFIG: AppConfig = {
         WBTC: 8,
     },
     NETWORKS: {
+        OP: {
+            ID: "10",
+            RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
+            TOKENS: {
+                WETH: getAddress("0x4200000000000000000000000000000000000006"),
+                USDC: getAddress("0x0b2c639c533813f4aa9d7837caf62653d097ff85"),
+                OP: getAddress("0x4200000000000000000000000000000000000042"),
+            },
+            MOONWELL: {
+                COMPTROLLER: getAddress("0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9"),
+            }
+        },
         BASE: {
             ID: "8453",
             RPC_URL: 'https://mainnet.base.org', //https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
@@ -85,16 +94,11 @@ export const CONFIG: AppConfig = {
                 COMPTROLLER: getAddress("0xfBb21d0380beE3312B33c4353c8936a0F13EF26C"),
             }
         },
-        OPT: {
-            ID: "10",
-            RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
+        HL: {
+            ID: "999",
+            RPC_URL: "https://rpc.hyperliquid.xyz/evm",
             TOKENS: {
-                WETH: getAddress("0x4200000000000000000000000000000000000006"),
-                USDC: getAddress("0x0b2c639c533813f4aa9d7837caf62653d097ff85"),
-                OP: getAddress("0x4200000000000000000000000000000000000042"),
-            },
-            MOONWELL: {
-                COMPTROLLER: getAddress("0xCa889f40aae37FFf165BccF69aeF1E82b5C511B9"),
+                USDC: getAddress("0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb"),
             }
         }
     },
@@ -106,21 +110,9 @@ export const CONFIG: AppConfig = {
             "function symbol() view returns (string)",
             "function underlying() view returns (address)",
             "function getAccountSnapshot(address account) view returns (uint256 err, uint256 mTokenBalance, uint256 borrowBalance, uint256 exchangeRateStored)",
-
-			/** @see supplyMoonwellAsset применение разных методов в зависимости от токена и сети*/
-			// "function mint(uint256 mintAmount) external returns (uint256)", // Для ETH/OPT
-			// "function mint() external payable", // Для ETH/Base
-			// "function mint(uint256 mintAmount) external returns (uint256)", // Для НЕ ETH
-
-			/** @see withdrawMoonwellAsset применение разных методов в зависимости от токена и сети*/
-			// "function redeemUnderlying(address recipient, uint256 redeemAmount) external returns (uint256)", // withdraw ETH/OPT
-			// "function redeemUnderlying(uint256 redeemAmount) external", // withdraw НЕ ETH
-
 			"function borrow(uint256 borrowAmount) external", // borrow
             "function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
             "function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
-			// "function supplyRatePerBlock() view returns (uint256)", //
-			// "function borrowRatePerBlock() view returns (uint256)", //
 			"function borrowRatePerTimestamp() view returns (uint256)",
 			"function supplyRatePerTimestamp() view returns (uint256)",
         ],
@@ -162,7 +154,7 @@ export const CONFIG: AppConfig = {
 };
 
 export const LENDING = {
-    OPT: {
+    OP: {
         '294789510': {
             ID: 4,
             PAIR_IDS: {
@@ -184,7 +176,7 @@ export const LENDING = {
 }
 
 export const POOLS = {
-    OPT: {
+    OP: {
         EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
         EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
         OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
@@ -193,44 +185,19 @@ export const POOLS = {
 
 // Настройки
 export const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
-export const RPC = CONFIG.NETWORKS[CONFIG.CHAIN].RPC_URL;
+export let CHAIN: ChainType = 'OP';
 export const SELL_TOKEN = 'WETH';
 export const BUY_TOKEN = 'USDC';//'OP';
 
-import {ethers, FetchRequest} from 'ethers';
+export let provider: ethers.JsonRpcProvider;
+export const providers: {chain: ChainType; provider: ethers.JsonRpcProvider}[] = [];
 
-const connection = new FetchRequest(RPC);
-connection.timeout = 5000; // Таймаут 5 секунд
-
-export const provider = new ethers.JsonRpcProvider(
-    connection,
-    undefined,
-    { batchMaxCount: 1 } // Ваши настройки батча
-);
-
-// Создаем объект провайдеров для всех поддерживаемых сетей
-export const providers: Record<string, ethers.JsonRpcProvider> = {};
-
-for (const [chainName, networkConfig] of Object.entries(CONFIG.NETWORKS)) {
-    const connection = new FetchRequest(networkConfig.RPC_URL);
-    connection.timeout = 5000;
-
-    providers[chainName] = new ethers.JsonRpcProvider(
-        connection,
-        undefined,
-        { batchMaxCount: 1 }
-    );
+export function setActiveProvider(activeProvider: ethers.JsonRpcProvider): void {
+    provider = activeProvider;
 }
 
-/* Версия без timeout
-export const provider = new ethers.JsonRpcProvider(RPC,
-    undefined,
-    {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);
-);
-*/
-
 export const MOONWELL_MARKETS = {
-    OPT: {
+    OP: {
         M_TOKENS: {
             ETH_ROUTER: "0xc4Ab8C031717d7ecCCD653BE898e0f92410E11dC",
             USDC: '0x8E08617b0d66359D73Aa11E11017834C29155525',
@@ -281,4 +248,4 @@ export interface WalletBalances {
     };
 }
 
-export const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+export const currentNetwork = CONFIG.NETWORKS[CHAIN];

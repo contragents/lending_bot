@@ -1,12 +1,33 @@
-import {CONFIG, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {CHAIN, CHAIN_NAMES, CONFIG, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
 import {getMoonwellPositions} from "./utils/moonwell/getMoonwellPositions.js";
-import {wallet} from "./utils/loadWallet.js";
+import {initializeWallet, wallet} from "./utils/loadWallet.js";
 import {fetchLendingInstruction} from "./utils/invest_legal/recommend.js";
 import {deLoop} from "./utils/looping/deLoop.js";
 import {loop} from "./utils/looping/loop.js";
 import {getMorphoPositions} from "./utils/morpho/getMorphoPositions.js";
 import {getHyperliquidPositions} from "./utils/hyperliquid/getHyperliquidPositions.js";
+import {FetchRequest, ethers} from "ethers";
+
+for (const chainName of CHAIN_NAMES) {
+    const connection = new FetchRequest(CONFIG.NETWORKS[chainName].RPC_URL);
+    connection.timeout = 5000;
+    providers.push({
+        chain: chainName,
+        provider: new ethers.JsonRpcProvider(
+            connection,
+            undefined,
+            {batchMaxCount: 1}
+        )
+    });
+}
+
+const activeProvider = providers.find(({chain}) => chain === CHAIN)?.provider;
+if (!activeProvider) {
+    throw new Error(`RPC provider is not configured for chain ${CHAIN}`);
+}
+setActiveProvider(activeProvider);
+await initializeWallet(activeProvider);
 
 // Глобальный перехватчик неисполненных промисов
 process.on('unhandledRejection', (reason: any, promise) => {
@@ -33,7 +54,7 @@ async function main() {
         await getMorphoPositions();
         await getHyperliquidPositions();
 
-        if (CONFIG.CHAIN !== 'OPT') return;
+        if (CHAIN !== 'OP') return;
 
         try {
             if (!await getMoonwellPositions()) {
@@ -68,7 +89,7 @@ async function main() {
             console.log(`Имя токена: ${borrowedToken}`);
             console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
-            if (CONFIG.CHAIN === 'OPT') {
+            if (CHAIN === 'OP') {
                 if (wallet) {
                     if (borrowAmount) {
                         await loop(borrowAmount);
@@ -93,10 +114,10 @@ async function main() {
     // await getMoonwellData(); // Общий статус, сколько можно занять в USD
     //await getJumperQuote();
     //await get0xQuoteV2("1.0");
-    //await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
-    //await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
+    //await getUniswapPoolPrice(POOLS.OP.EthOp03, provider);
+    //await getUniswapPoolPrice(POOLS.OP.EthOp005, provider);
+    //await estimatePriceImpact(provider, borrowAmount, POOLS.OP.EthOp03, CONFIG.ABI.UNISWAP);
+    //await estimatePriceImpact(provider, borrowAmount, POOLS.OP.EthOp005, CONFIG.ABI.UNISWAP);
 }
 
 main();

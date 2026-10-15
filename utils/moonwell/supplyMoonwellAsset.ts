@@ -1,4 +1,4 @@
-import {CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
@@ -7,7 +7,7 @@ export async function supplyMoonwellAsset(
 	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
 	amountHuman: number               // Сколько токенов вносим в человеческом формате
 ): Promise<boolean> {
-	console.log(`\n--- Moonwell Universal Supply: ${amountHuman} ${underlyingSymbol} (${CONFIG.CHAIN}) ---`);
+	console.log(`\n--- Moonwell Universal Supply: ${amountHuman} ${underlyingSymbol} (${CHAIN}) ---`);
 
 	// Проверяем, авторизован ли кошелек
 	if (!wallet) {
@@ -21,18 +21,18 @@ export async function supplyMoonwellAsset(
 		return false;
 	}
 
-	const networkKey = CONFIG.CHAIN as keyof typeof MOONWELL_MARKETS;
+	const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
 
 	const decimals = CONFIG.TOKEN_DECIMALS[underlyingSymbol as keyof typeof CONFIG.TOKEN_DECIMALS] ?? CONFIG.TOKEN_DECIMALS.default;
 	const supplyAmountWei = ethers.parseUnits(amountHuman.toString(), decimals);
 
 	try {
 		if (underlyingSymbol === 'ETH') {
-			if (CONFIG.CHAIN === 'OPT') {
+			if (CHAIN === 'OP') {
 				// todo отдельные методы для ETH и других
 				// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
 				const routerAbi = ["function mint(address recipient) external payable returns (uint256)"];
-				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OPT.M_TOKENS.ETH_ROUTER, routerAbi, wallet);
+				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OP.M_TOKENS.ETH_ROUTER, routerAbi, wallet);
 
 				console.log(`Отправка ETH через официальный нативный роутер Moonwell...`);
 				const tx = await routerContract.mint?.(wallet.address, {
@@ -53,7 +53,7 @@ export async function supplyMoonwellAsset(
 		const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[marketSymbol];
 
 		if (!mTokenAddress) {
-			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CONFIG.CHAIN}`);
+			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
 		}
 
 		// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был Base/Moonbeam) =================

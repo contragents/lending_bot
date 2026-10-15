@@ -1,5 +1,5 @@
 import {ethers} from "ethers";
-import {getEnv, provider} from "../config.js";
+import {getEnv} from "../config.js";
 import readline from "readline/promises";
 import {HDNodeWallet, Wallet} from "ethers";
 
@@ -26,4 +26,8 @@ async function loadWallet(provider: ethers.Provider) {
 	}
 }
 
-export const wallet: Wallet | HDNodeWallet | undefined = await loadWallet(provider);
+export let wallet: Wallet | HDNodeWallet | undefined;
+
+export async function initializeWallet(provider: ethers.Provider): Promise<void> {
+	wallet = await loadWallet(provider);
+}

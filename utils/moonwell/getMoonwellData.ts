@@ -1,11 +1,14 @@
-import {CONFIG, provider, WATCH_ADDRESS} from "../../config.js";
+import {CHAIN, CONFIG, currentNetwork, provider, WATCH_ADDRESS} from "../../config.js";
 import {ethers} from "ethers";
 import {withRetry} from "../utils.js";
 
 export async function getMoonwellData() {
-	console.log(`--- Moonwell Status (${CONFIG.CHAIN}) ---`);
+	console.log(`--- Moonwell Status (${CHAIN}) ---`);
+	if (!currentNetwork.MOONWELL) {
+		throw new Error(`Moonwell is not configured for chain ${CHAIN}`);
+	}
 	const comptroller = new ethers.Contract(
-		CONFIG.NETWORKS[CONFIG.CHAIN!].MOONWELL.COMPTROLLER,
+		currentNetwork.MOONWELL.COMPTROLLER,
 		CONFIG.ABI.MOONWELL,
 		provider
 	) as any;

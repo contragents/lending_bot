@@ -1,4 +1,4 @@
-import {CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
 import {ethers, formatUnits} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
@@ -7,7 +7,7 @@ export async function repayMoonwellAsset(
 	underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
 	amountHuman: number               // Сколько токенов хотим вернуть
 ) {
-	console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${CONFIG.CHAIN}) ---`);
+	console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${CHAIN}) ---`);
 
 	// Проверяем, авторизован ли кошелек
 	if (!wallet) {
@@ -15,11 +15,11 @@ export async function repayMoonwellAsset(
 		return false;
 	}
 
-	const networkKey = CONFIG.CHAIN as keyof typeof MOONWELL_MARKETS;
+	const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
 	const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[underlyingSymbol];
 
 	if (!mTokenAddress) {
-		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CONFIG.CHAIN}`);
+		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
 	}
 
 	// Извлекаем адрес оригинального ERC-20 токена из конфигурации сети

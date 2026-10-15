@@ -1,12 +1,16 @@
-import {CONFIG, currentNetwork, getEnv, LENDING, provider, WATCH_ADDRESS} from "../../config.js";
+import {CHAIN, CONFIG, currentNetwork, getEnv, LENDING, provider, WATCH_ADDRESS} from "../../config.js";
 import {ethers, formatUnits} from "ethers";
 import {withRetry} from "../utils.js";
 
 export async function getMoonwellPositions(): Promise<boolean> {
-    console.log(`--- Moonwell Assets & Liabilities (${CONFIG.CHAIN}) ---`);
+    console.log(`--- Moonwell Assets & Liabilities (${CHAIN}) ---`);
+    const moonwellConfig = currentNetwork.MOONWELL;
+    if (!moonwellConfig) {
+        throw new Error(`Moonwell is not configured for chain ${CHAIN}`);
+    }
 
     const comptroller = new ethers.Contract(
-        currentNetwork.MOONWELL.COMPTROLLER,
+        moonwellConfig.COMPTROLLER,
         CONFIG.ABI.MOONWELL,
         provider
     );
@@ -20,7 +24,7 @@ export async function getMoonwellPositions(): Promise<boolean> {
         const params = url.searchParams;
         params.set('tg_id', String(tgId));
 
-        const chainConfig = LENDING[CONFIG.CHAIN!];
+        const chainConfig = LENDING[CHAIN as keyof typeof LENDING];
         const userConfig = chainConfig[tgId as keyof typeof chainConfig];
         // Используем с проверкой на случай, если пользователя нет в конфиге
         params.set('lending_id', String(userConfig?.ID ?? ''));

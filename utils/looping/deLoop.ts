@@ -10,7 +10,7 @@ export async function deLoop(supplyAmount: number) {
 
     // Заходим в цикл withdraw-обмен только если OP мало, иначе сразу супплаим весь эфир
     if (walletBalances.OP.human < supplyAmount * 0.9) {
-        let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+        let quote = await getUniswapPoolPrice(POOLS.OP.EthOp03, provider);
 
         // Проверяем, что ETH в кошельке не остался от прошлого прогона метода
         if (walletBalances.ETH.human < 0.01) {

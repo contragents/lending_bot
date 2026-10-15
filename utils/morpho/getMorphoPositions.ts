@@ -14,10 +14,15 @@ export async function getMorphoPositions(): Promise<boolean> {
     // ID конкретного рынка из вашей ссылки (USDC-cbBTC)
     const MARKET_ID = "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
 
+    const baseProvider = providers.find(({chain}) => chain === 'BASE')?.provider;
+    if (!baseProvider) {
+        throw new Error('RPC provider is not initialized for chain BASE');
+    }
+
     const morpho = new ethers.Contract(
         MORPHO_BLUE_ADDRESS,
         CONFIG.ABI.MORPHO,
-        providers['BASE']
+        baseProvider
     );
 
     try {

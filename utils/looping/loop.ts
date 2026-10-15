@@ -35,7 +35,7 @@ export async function loop(borrowAmount: number) {
                     if (numTry < 5) continue; else break;
                 }
 
-                let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+                let quote = await getUniswapPoolPrice(POOLS.OP.EthOp03, provider);
                 quote = 1 / quote;
 
                 console.log(await swapToEth("OP", walletBalances.OP.human, quote));

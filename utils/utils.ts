@@ -1,5 +1,6 @@
 import {
 	BUY_TOKEN,
+	CHAIN,
 	CONFIG,
 	POOLS,
 	provider,
@@ -12,7 +13,7 @@ import {ethers, formatUnits} from 'ethers';
 
 import * as LIFI from '@lifi/sdk';
 
-const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+const currentNetwork = CONFIG.NETWORKS[CHAIN];
 const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
 const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
 
@@ -58,11 +59,11 @@ if(false) {
 }
 
 export async function getJumperQuote() {
-    console.log(`--- JUMPER (LIFI) Quote (${CONFIG.CHAIN}) ---`);
+    console.log(`--- JUMPER (LIFI) Quote (${CHAIN}) ---`);
     try {
         const quoteRequest = {
-            fromChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
-            toChain: CONFIG.NETWORKS[CONFIG.CHAIN].ID,
+            fromChain: CONFIG.NETWORKS[CHAIN].ID,
+            toChain: CONFIG.NETWORKS[CHAIN].ID,
             fromToken: sellTokenAddr!,
             toToken: buyTokenAddr!,
             fromAmount: '1000000000000000000', // 1 ETH
@@ -88,15 +89,15 @@ export async function getJumperQuote() {
 
 
 export async function get0xQuoteV2(amountInEth: string) {
-    console.log(`--- 0x API v2 Quote (CONFIG.CHAIN) ---`);
+    console.log(`--- 0x API v2 Quote (${CHAIN}) ---`);
 
-    //const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
+    //const currentNetwork = CONFIG.NETWORKS[CHAIN];
     const amountInWei = ethers.parseEther(amountInEth).toString();
 
     // Параметры согласно документации v2
     // @ts-ignore
     const params = new URLSearchParams({
-        chainId: CONFIG.NETWORKS[CONFIG.CHAIN].ID, // Optimism
+        chainId: CONFIG.NETWORKS[CHAIN].ID, // Optimism
         sellToken: sellTokenAddr, // ETH
         buyToken: buyTokenAddr,
         sellAmount: amountInWei,
@@ -147,7 +148,7 @@ export async function get0xQuoteV2(amountInEth: string) {
  * @param provider
  */
 export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider) {
-    const poolFee = pool === POOLS.OPT.EthOp005 ? "0.05" : "0.3";
+    const poolFee = pool === POOLS.OP.EthOp005 ? "0.05" : "0.3";
 
     const poolContract = new ethers.Contract(pool, CONFIG.ABI.UNISWAP, provider) as any;
 
@@ -256,7 +257,7 @@ export async function estimatePriceImpact(
 }
 
 async function l1FeeEstimated(provider: ethers.JsonRpcProvider) {
-    const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
+    const oracleContract = new ethers.Contract(POOLS.OP.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
 
     // 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPTIMISM (L1 Ecotone + L2)
     const l1BaseFee = await oracleContract.l1BaseFee();
@@ -277,7 +278,7 @@ async function l1FeeEstimated(provider: ethers.JsonRpcProvider) {
 }
 
 export async function getWalletBalances(): Promise<WalletBalances> {
-    console.log(`\n--- Проверка балансов кошелька (${CONFIG.CHAIN}) ---`);
+    console.log(`\n--- Проверка балансов кошелька (${CHAIN}) ---`);
     console.log(`Адрес: ${WATCH_ADDRESS}`);
 
     const balances: WalletBalances = {};

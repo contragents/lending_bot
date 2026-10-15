@@ -186,7 +186,7 @@ export const POOLS = {
 export const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
 export let CHAIN: ChainType = OPT_CHAIN;
 export const SELL_TOKEN = 'WETH';
-export const BUY_TOKEN = 'USDC';//'OP';
+export const BUY_TOKEN = 'USDC';
 
 export let provider: ethers.JsonRpcProvider;
 export const providers: {chain: ChainType; provider: ethers.JsonRpcProvider}[] = [];

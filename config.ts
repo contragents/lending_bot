@@ -49,8 +49,6 @@ interface AppConfig {
         // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
         { [key: string]: number };
     ZEROX_API_KEY: string;
-    SLIPPAGE: number;
-    INTEGRATOR_ID: string,
     NETWORKS: {
         [key in ChainType]: NetworkSettings;
     };
@@ -152,9 +150,6 @@ export const CONFIG: AppConfig = {
     },
     // Параметры для API
     ZEROX_API_KEY: getEnv('ZEROX_API_KEY'),
-    // Параметры бота
-    INTEGRATOR_ID: 'lifi', // или ваш ID
-    SLIPPAGE: 0.005,      // 0.5%
 };
 
 export const LENDING = {

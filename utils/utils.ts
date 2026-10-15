@@ -12,8 +12,6 @@ import {
 } from "../config.js";
 import {ethers, formatUnits} from 'ethers';
 
-import * as LIFI from '@lifi/sdk';
-
 const currentNetwork = CONFIG.NETWORKS[CHAIN];
 const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
 const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
@@ -47,98 +45,6 @@ export async function withRetry<T>(
 
         // Если попытки кончились или ошибка критическая — выбрасываем её дальше
         throw error;
-    }
-}
-
-// Инициализация LI.FI SDK
-// Не используется в настоящее время
-if(false) {
-	LIFI.createConfig({
-		integrator: 'lifi',
-		// здесь можно добавить настройки чейнов, если нужно
-	});
-}
-
-export async function getJumperQuote() {
-    console.log(`--- JUMPER (LIFI) Quote (${CHAIN}) ---`);
-    try {
-        const quoteRequest = {
-            fromChain: CONFIG.NETWORKS[CHAIN].ID,
-            toChain: CONFIG.NETWORKS[CHAIN].ID,
-            fromToken: sellTokenAddr!,
-            toToken: buyTokenAddr!,
-            fromAmount: '1000000000000000000', // 1 ETH
-            fromAddress: WATCH_ADDRESS,
-            slippage: 0.005, // 0.5%
-            order: 'CHEAPEST' as const, // Принудительно искать самый дешевый вариант
-            insurance: false,  // Отключить страховку, если она включена по умолчанию
-        };
-
-        const quote = await withRetry(() => LIFI.getQuote(quoteRequest));
-        // Для USDC указываем 6 знаков
-        const formattedAmount = formatUnits(quote.estimate.toAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
-        const formattedAmountMin = formatUnits(quote.estimate.toAmountMin, CONFIG.TOKEN_DECIMALS[BUY_TOKEN]);
-
-        //console.dir(quote.estimate, {depth: null});
-
-        console.log(`Лучший маршрут: ${quote.tool}`);
-        console.log(`Вы получите (LIFI): ${formattedAmount}/${formattedAmountMin} ${BUY_TOKEN}`);
-    } catch (error) {
-        console.error('Ошибка получения котировки:', error);
-    }
-}
-
-
-export async function get0xQuoteV2(amountInEth: string) {
-    console.log(`--- 0x API v2 Quote (${CHAIN}) ---`);
-
-    //const currentNetwork = CONFIG.NETWORKS[CHAIN];
-    const amountInWei = ethers.parseEther(amountInEth).toString();
-
-    // Параметры согласно документации v2
-    // @ts-ignore
-    const params = new URLSearchParams({
-        chainId: CONFIG.NETWORKS[CHAIN].ID, // OPT
-        sellToken: sellTokenAddr, // ETH
-        buyToken: buyTokenAddr,
-        sellAmount: amountInWei,
-        taker: WATCH_ADDRESS, // Адрес того, кто будет делать обмен
-        slippagePercentage: CONFIG.SLIPPAGE.toString(),
-    });
-
-    try {
-        const response = await fetch(
-            `https://api.0x.org/swap/allowance-holder/quote?${params.toString()}`,
-            {
-                headers: {
-                    "0x-api-key": CONFIG.ZEROX_API_KEY,
-                    "0x-version": "v2", // Обязательно для нового API
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        if (!response.ok) {
-            // В v2 ошибки часто возвращаются в формате JSON с полем "reason"
-            const errorData = await response.json();
-            console.error('Детали ошибки 0x:', errorData);
-
-            return;
-        }
-
-        const data = await response.json() as any;
-
-        // В v2 структура ответа может отличаться: ищите buyAmount в объекте
-        console.log(`Вы получите (0x): ${ethers.formatUnits(data.buyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])}/${ethers.formatUnits(data.minBuyAmount, CONFIG.TOKEN_DECIMALS[BUY_TOKEN])} ${BUY_TOKEN}`);
-
-        // console.dir(data, {depth: null});
-
-        return data;
-
-    } catch (error: any) {
-        // Если fetch failed, смотрим причину (cause)
-        console.error('Ошибка сети:', error.message);
-        if (error.cause) console.error('Причина:', error.cause);
     }
 }
 

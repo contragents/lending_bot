@@ -1,5 +1,6 @@
 import {
 	BUY_TOKEN,
+	OPT_CHAIN,
 	CHAIN,
 	CONFIG,
 	POOLS,
@@ -97,7 +98,7 @@ export async function get0xQuoteV2(amountInEth: string) {
     // Параметры согласно документации v2
     // @ts-ignore
     const params = new URLSearchParams({
-        chainId: CONFIG.NETWORKS[CHAIN].ID, // Optimism
+        chainId: CONFIG.NETWORKS[CHAIN].ID, // OPT
         sellToken: sellTokenAddr, // ETH
         buyToken: buyTokenAddr,
         sellAmount: amountInWei,
@@ -148,7 +149,7 @@ export async function get0xQuoteV2(amountInEth: string) {
  * @param provider
  */
 export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider) {
-    const poolFee = pool === POOLS.OP.EthOp005 ? "0.05" : "0.3";
+    const poolFee = pool === POOLS.OPT.EthOp005 ? "0.05" : "0.3";
 
     const poolContract = new ethers.Contract(pool, CONFIG.ABI.UNISWAP, provider) as any;
 
@@ -231,7 +232,7 @@ export async function estimatePriceImpact(
     const priceImpactPercent = (priceImpactInOP / amountInHuman) * 100;
     const gasLossPercent = (gasCostOP / amountInHuman) * 100;
 
-    console.log(`--- Анализ с точным газом Optimism L1+L2 (${amountInHuman} OP, Пул ${feePercent}%) ---`);
+    console.log(`--- Анализ с точным газом ${OPT_CHAIN} L1+L2 (${amountInHuman} OP, Пул ${feePercent}%) ---`);
     console.log(`Идеальный выход (без потерь): ${idealAmountOutETH.toFixed(6)} ETH`);
     console.log(`Реальный выход из пула:      ${realAmountOutETH.toFixed(6)} ETH`);
     console.log(`Чистый результат на выходе:  ${netAmountOutETH.toFixed(6)} ETH`);
@@ -257,9 +258,9 @@ export async function estimatePriceImpact(
 }
 
 async function l1FeeEstimated(provider: ethers.JsonRpcProvider) {
-    const oracleContract = new ethers.Contract(POOLS.OP.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
+    const oracleContract = new ethers.Contract(POOLS.OPT.OracleAddress, CONFIG.ABI.ORACLE, provider) as any;
 
-    // 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPTIMISM (L1 Ecotone + L2)
+    // 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPT (L1 Ecotone + L2)
     const l1BaseFee = await oracleContract.l1BaseFee();
     const blobBaseFee = await oracleContract.blobBaseFee();
     const baseFeeScalar = BigInt(await oracleContract.baseFeeScalar());
@@ -376,7 +377,7 @@ export function calculateTxGasCost(receipt: ethers.TransactionReceipt): number {
     const l2GasPrice = receipt.gasPrice;
     const l2FeeWei = l2GasUsed * l2GasPrice;
 
-    // 2. Считаем L1 Data Fee (специфично для Optimism/Base)
+    // 2. Считаем L1 Data Fee (специфично для OPT/BASE)
     // В ethers.js v6 свойство l1Fee может лежать в сырых данных квитанции
     const l1FeeWei = (receipt as any).l1Fee ?? 0n;
 

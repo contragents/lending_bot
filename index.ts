@@ -1,4 +1,4 @@
-import {CHAIN, CHAIN_NAMES, CONFIG, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
 import {getMoonwellPositions} from "./utils/moonwell/getMoonwellPositions.js";
 import {initializeWallet, wallet} from "./utils/loadWallet.js";
@@ -54,7 +54,7 @@ async function main() {
         await getMorphoPositions();
         await getHyperliquidPositions();
 
-        if (CHAIN !== 'OP') return;
+        if (CHAIN !== OPT_CHAIN) return;
 
         try {
             if (!await getMoonwellPositions()) {
@@ -89,7 +89,7 @@ async function main() {
             console.log(`Имя токена: ${borrowedToken}`);
             console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
-            if (CHAIN === 'OP') {
+            if (CHAIN === OPT_CHAIN) {
                 if (wallet) {
                     if (borrowAmount) {
                         await loop(borrowAmount);
@@ -114,10 +114,10 @@ async function main() {
     // await getMoonwellData(); // Общий статус, сколько можно занять в USD
     //await getJumperQuote();
     //await get0xQuoteV2("1.0");
-    //await getUniswapPoolPrice(POOLS.OP.EthOp03, provider);
-    //await getUniswapPoolPrice(POOLS.OP.EthOp005, provider);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OP.EthOp03, CONFIG.ABI.UNISWAP);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OP.EthOp005, CONFIG.ABI.UNISWAP);
+    //await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+    //await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);
+    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
+    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
 }
 
 main();

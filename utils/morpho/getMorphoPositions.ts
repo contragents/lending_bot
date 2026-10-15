@@ -1,4 +1,4 @@
-import {CONFIG, currentNetwork, getEnv, LENDING, provider, providers, WATCH_ADDRESS} from "../../config.js";
+import {BASE_CHAIN, CONFIG, currentNetwork, getEnv, LENDING, providers, WATCH_ADDRESS} from "../../config.js";
 import { ethers, formatUnits } from "ethers";
 import { withRetry } from "../utils.js";
 
@@ -6,17 +6,17 @@ import { withRetry } from "../utils.js";
  * Получает позицию cbBTC/USDC в BASE!
  */
 export async function getMorphoPositions(): Promise<boolean> {
-    console.log(`--- Morpho Blue Assets & Liabilities (BASE) ---`);
+    console.log(`--- Morpho Blue Assets & Liabilities (${BASE_CHAIN}) ---`);
 
-    // Адрес синглтона Morpho Blue на Base
+    // Адрес синглтона Morpho Blue на BASE
     const MORPHO_BLUE_ADDRESS = ethers.getAddress("0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb".toLowerCase());
 
     // ID конкретного рынка из вашей ссылки (USDC-cbBTC)
     const MARKET_ID = "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
 
-    const baseProvider = providers.find(({chain}) => chain === 'BASE')?.provider;
+    const baseProvider = providers.find(({chain}) => chain === BASE_CHAIN)?.provider;
     if (!baseProvider) {
-        throw new Error('RPC provider is not initialized for chain BASE');
+        throw new Error(`RPC provider is not initialized for chain ${BASE_CHAIN}`);
     }
 
     const morpho = new ethers.Contract(
@@ -32,7 +32,7 @@ export async function getMorphoPositions(): Promise<boolean> {
         const params = url.searchParams;
         params.set('tg_id', String(tgId));
 
-        const chainConfig = LENDING['BASE'];
+        const chainConfig = LENDING[BASE_CHAIN];
         const userConfig = chainConfig[tgId as keyof typeof chainConfig];
         params.set('lending_id', String(userConfig?.ID ?? ''));
 

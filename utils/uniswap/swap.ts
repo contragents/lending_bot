@@ -30,7 +30,7 @@ export async function swapEthToOp(
 		// Роутер автоматически заберет нативный ETH и обернет в WETH
 		const path = ethers.solidityPacked(
 			["address", "uint24", "address"],
-			[CONFIG.NETWORKS.OP.TOKENS.WETH, 3000, CONFIG.NETWORKS.OP.TOKENS[underlyingSymbol]]
+			[CONFIG.NETWORKS.OPT.TOKENS.WETH, 3000, CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol]]
 		);
 
 		// Шаг 2: Подготовка параметров для exactInput
@@ -85,7 +85,7 @@ export async function swapToEth(
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
 		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, wallet);
-		const opContract = new ethers.Contract(CONFIG.NETWORKS.OP.TOKENS[underlyingSymbol], CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
+		const opContract = new ethers.Contract(CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol], CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
 
 		// Шаг 1: Одобряем роутеру трату токенов OP
 		console.log("1. Отправка Approve...");
@@ -97,7 +97,7 @@ export async function swapToEth(
 		// 3000 bps в Uniswap соответствует пулу с комиссией 0.3%
 		const path = ethers.solidityPacked(
 			["address", "uint24", "address"],
-			[CONFIG.NETWORKS.OP.TOKENS[underlyingSymbol], 3000, CONFIG.NETWORKS.OP.TOKENS.WETH]
+			[CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol], 3000, CONFIG.NETWORKS.OPT.TOKENS.WETH]
 		);
 
 		// Шаг 3: Кодируем внутренние вызовы для Multicall
@@ -122,7 +122,7 @@ export async function swapToEth(
 		// Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию
 		console.log("3. Отправка транзакции обмена...");
 		const tx = await routerContract.multicall([exactInputData, unwrapWETH9Data], {
-			gasLimit: 350000 // Лимит с запасом, Optimism спишет копейки по факту
+			gasLimit: 350000 // Лимит с запасом, OPT спишет копейки по факту
 		});
 
 		console.log(`Транзакция отправлена! Хэш: ${tx.hash}`);

@@ -17,8 +17,12 @@ type TokenList = {
     [K in SupportedToken]?: string;
 };
 
-// Создаем список сетей в рантайме (as const обязателен)
-export const CHAIN_NAMES = ['OP', 'BASE', 'HL'] as const;
+export const OPT_CHAIN = 'OPT';
+export const BASE_CHAIN = 'BASE';
+export const HL_CHAIN = 'HL';
+
+// Создаем список сетей в рантайме
+export const CHAIN_NAMES = [OPT_CHAIN, BASE_CHAIN, HL_CHAIN] as const;
 
 export type ChainType = typeof CHAIN_NAMES[number];
 
@@ -68,7 +72,7 @@ export const CONFIG: AppConfig = {
         WBTC: 8,
     },
     NETWORKS: {
-        OP: {
+        OPT: {
             ID: "10",
             RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
             TOKENS: {
@@ -154,7 +158,7 @@ export const CONFIG: AppConfig = {
 };
 
 export const LENDING = {
-    OP: {
+    OPT: {
         '294789510': {
             ID: 4,
             PAIR_IDS: {
@@ -176,7 +180,7 @@ export const LENDING = {
 }
 
 export const POOLS = {
-    OP: {
+    OPT: {
         EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
         EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
         OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
@@ -185,7 +189,7 @@ export const POOLS = {
 
 // Настройки
 export const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
-export let CHAIN: ChainType = 'OP';
+export let CHAIN: ChainType = OPT_CHAIN;
 export const SELL_TOKEN = 'WETH';
 export const BUY_TOKEN = 'USDC';//'OP';
 
@@ -197,7 +201,7 @@ export function setActiveProvider(activeProvider: ethers.JsonRpcProvider): void 
 }
 
 export const MOONWELL_MARKETS = {
-    OP: {
+    OPT: {
         M_TOKENS: {
             ETH_ROUTER: "0xc4Ab8C031717d7ecCCD653BE898e0f92410E11dC",
             USDC: '0x8E08617b0d66359D73Aa11E11017834C29155525',

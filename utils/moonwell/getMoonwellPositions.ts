@@ -89,7 +89,7 @@ export async function getMoonwellPositions(): Promise<boolean> {
 }
 
 /**
- * Получает текущие ставки Supply APY и Borrow APY для конкретного рынка Moonwell (Optimism/Base)
+ * Получает текущие ставки Supply APY и Borrow APY для конкретного рынка Moonwell (OPT/BASE)
  * @param mToken Инстанс контракта ethers.Contract для конкретного mToken
  * @returns Массив строк [formattedSupplyAPY, formattedBorrowAPY]
  */

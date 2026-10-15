@@ -1,4 +1,4 @@
-import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, OPT_CHAIN, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
@@ -28,11 +28,11 @@ export async function supplyMoonwellAsset(
 
 	try {
 		if (underlyingSymbol === 'ETH') {
-			if (CHAIN === 'OP') {
+			if (CHAIN === OPT_CHAIN) {
 				// todo отдельные методы для ETH и других
 				// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
 				const routerAbi = ["function mint(address recipient) external payable returns (uint256)"];
-				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OP.M_TOKENS.ETH_ROUTER, routerAbi, wallet);
+				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OPT.M_TOKENS.ETH_ROUTER, routerAbi, wallet);
 
 				console.log(`Отправка ETH через официальный нативный роутер Moonwell...`);
 				const tx = await routerContract.mint?.(wallet.address, {
@@ -56,7 +56,7 @@ export async function supplyMoonwellAsset(
 			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
 		}
 
-		// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был Base/Moonbeam) =================
+		// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был BASE/Moonbeam) =================
 		if (underlyingSymbol === 'ETH') {
 			// todo отдельные методы для ETH и других
 			const mTokenPayableAbi = ["function mint() external payable"];

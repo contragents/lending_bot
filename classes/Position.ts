@@ -9,6 +9,8 @@ export type PositionAssets = {
 };
 
 export abstract class Position {
+    protected abstract readonly lendingId: number;
+
     assets: PositionAssets = {
         supply: {},
         borrow: {},
@@ -29,16 +31,26 @@ export abstract class Position {
         throw new Error(`${this.constructor.name} does not support de-looping`);
     }
 
-    protected createReportParams(lendingId: number): URLSearchParams {
-        return new URLSearchParams({
+    protected createReportParams(assets: PositionAssets): URLSearchParams {
+        const params = new URLSearchParams({
             tg_id: getEnv("TG_ID"),
-            lending_id: String(lendingId),
+            lending_id: String(this.lendingId),
         });
+
+        for (const [key, amount] of Object.entries(assets.supply)) {
+            params.set(`supply_${key}`, String(amount));
+        }
+        for (const [key, amount] of Object.entries(assets.borrow)) {
+            params.set(`borrow_${key}`, String(amount));
+        }
+
+        return params;
     }
 
     protected createReportUrl(params: URLSearchParams): URL {
         const url = new URL(LENDING_BOT_URL);
         url.search = params.toString();
+
         return url;
     }
 }

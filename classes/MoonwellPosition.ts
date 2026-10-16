@@ -20,10 +20,12 @@ function getHumanBalance(balances: WalletBalances, token: SupportedToken): numbe
 }
 
 export class MoonwellPosition extends Position {
-    private reportParams: URLSearchParams | undefined;
+    protected readonly lendingId = 4;
+    private positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
-        this.reportParams = undefined;
+        this.assets = {supply: {}, borrow: {}};
+        this.positionLoaded = false;
         console.log(`--- Moonwell Assets & Liabilities (${CHAIN}) ---`);
         const moonwellConfig = currentNetwork.MOONWELL;
         if (!moonwellConfig) {
@@ -44,7 +46,6 @@ export class MoonwellPosition extends Position {
                 throw new Error(`Lending configuration is missing for user ${tgId} on ${CHAIN}`);
             }
 
-            const params = this.createReportParams(userConfig.ID);
             const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
 
             for (const mTokenAddress of markets) {
@@ -64,13 +65,13 @@ export class MoonwellPosition extends Position {
                     const underlyingAmountWei = BigInt(mTokenBalance * exchangeRate) / ethers.parseEther("1");
                     const formattedSupply = formatUnits(underlyingAmountWei, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
                     console.log(`🟢 Снабжение (Asset)  -> ${formattedSupply} ${underlyingSymbol}`);
-                    if (pairId !== undefined) params.set(`supply_${pairId}`, formattedSupply);
+                    if (pairId !== undefined) this.assets.supply[pairId] = Number(formattedSupply);
                 }
 
                 if (borrowBalance > 0n) {
                     const formattedBorrow = formatUnits(borrowBalance, CONFIG.TOKEN_DECIMALS[underlyingSymbol]);
                     console.log(`🔴 Заем (Liability)   -> ${formattedBorrow} ${underlyingSymbol}`);
-                    if (pairId !== undefined) params.set(`borrow_${pairId}`, formattedBorrow);
+                    if (pairId !== undefined) this.assets.borrow[pairId] = Number(formattedBorrow);
                 }
 
                 const [formattedSupplyAPY, formattedBorrowAPY] = await this.calculateMoonwellAPY(mToken);
@@ -79,7 +80,7 @@ export class MoonwellPosition extends Position {
                     : `Supply APY: ${formattedSupplyAPY}`);
             }
 
-            this.reportParams = params;
+            this.positionLoaded = true;
             return true;
         } catch (err) {
             console.error("Ошибка при получении позиций Moonwell:", err);
@@ -88,12 +89,12 @@ export class MoonwellPosition extends Position {
     }
 
     async reportPosition(): Promise<boolean> {
-        if (!this.reportParams) {
+        if (!this.positionLoaded) {
             throw new Error("Call getPosition() before reportPosition()");
         }
 
         try {
-            const url = this.createReportUrl(this.reportParams);
+            const url = this.createReportUrl(this.createReportParams(this.assets));
             const response = await fetch(url.href);
             const text = await response.text();
             console.log(url.href, text);

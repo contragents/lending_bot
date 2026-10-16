@@ -7,12 +7,14 @@ const MORPHO_BLUE_ADDRESS = ethers.getAddress("0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62
 const MARKET_ID = "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
 
 export class MorphoPosition extends Position {
-    private reportParams: URLSearchParams | undefined;
+    protected readonly lendingId = 5;
     private hasPosition = false;
+    private positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
-        this.reportParams = undefined;
+        this.assets = {supply: {}, borrow: {}};
         this.hasPosition = false;
+        this.positionLoaded = false;
         console.log(`--- Morpho Blue Assets & Liabilities (${BASE_CHAIN}) ---`);
         const baseProvider = providers.find(({chain}) => chain === BASE_CHAIN)?.provider;
         if (!baseProvider) {
@@ -28,15 +30,14 @@ export class MorphoPosition extends Position {
                 throw new Error(`Lending configuration is missing for user ${tgId} on ${BASE_CHAIN}`);
             }
 
-            const params = this.createReportParams(userConfig.ID);
             const [supplyShares, borrowShares, collateral] = await withRetry<[bigint, bigint, bigint]>(() =>
                 (morpho as any).position(MARKET_ID, WATCH_ADDRESS)
             );
 
-            this.reportParams = params;
             this.hasPosition = collateral !== 0n || borrowShares !== 0n;
             if (!this.hasPosition) {
                 console.log("Позиции на Morpho Blue не найдены.");
+                this.positionLoaded = true;
                 return true;
             }
 
@@ -47,7 +48,7 @@ export class MorphoPosition extends Position {
                 const formattedSupply = formatUnits(collateral, CONFIG.TOKEN_DECIMALS[collateralSymbol]);
                 console.log(`🟢 Снабжение (Asset - Collateral) -> ${formattedSupply} ${collateralSymbol}`);
                 const pairId = userConfig.PAIR_IDS[collateralSymbol as keyof typeof userConfig.PAIR_IDS];
-                if (pairId !== undefined) params.set(`supply_${pairId}`, formattedSupply);
+                if (pairId !== undefined) this.assets.supply[pairId] = Number(formattedSupply);
             }
 
             if (borrowShares > 0n) {
@@ -61,9 +62,10 @@ export class MorphoPosition extends Position {
                 const formattedBorrow = formatUnits(borrowAmountWei, CONFIG.TOKEN_DECIMALS[borrowSymbol]);
                 console.log(`🔴 Заем (Liability - Debt) -> ${formattedBorrow} ${borrowSymbol}`);
                 const pairId = userConfig.PAIR_IDS[borrowSymbol as keyof typeof userConfig.PAIR_IDS];
-                if (pairId !== undefined) params.set(`borrow_${pairId}`, formattedBorrow);
+                if (pairId !== undefined) this.assets.borrow[pairId] = Number(formattedBorrow);
             }
 
+            this.positionLoaded = true;
             return true;
         } catch (err) {
             console.error("Ошибка при получении позиций Morpho Blue:", err);
@@ -72,13 +74,13 @@ export class MorphoPosition extends Position {
     }
 
     async reportPosition(): Promise<boolean> {
-        if (!this.reportParams) {
+        if (!this.positionLoaded) {
             throw new Error("Call getPosition() before reportPosition()");
         }
         if (!this.hasPosition) return true;
 
         try {
-            const url = this.createReportUrl(this.reportParams);
+            const url = this.createReportUrl(this.createReportParams(this.assets));
             const response = await fetch(url.href);
             const text = await response.text();
             console.log(url.href, text);

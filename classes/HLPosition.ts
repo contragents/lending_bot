@@ -2,7 +2,6 @@ import {WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
-const HYPERLIQUID_LENDING_ID = 6;
 
 type HyperliquidPositionData = {
     coin: string;
@@ -91,6 +90,7 @@ async function postToHyperliquidInfo(type: string): Promise<unknown> {
 }
 
 export class HLPosition extends Position {
+    protected readonly lendingId = 6;
     private positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
@@ -188,16 +188,8 @@ export class HLPosition extends Position {
             throw new Error("Call getPosition() before reportPosition()");
         }
 
-        const params = this.createReportParams(HYPERLIQUID_LENDING_ID);
-        for (const [ticker, amount] of Object.entries(this.assets.supply)) {
-            params.set(`supply_${ticker}`, String(amount));
-        }
-        for (const [ticker, amount] of Object.entries(this.assets.borrow)) {
-            params.set(`borrow_${ticker}`, String(amount));
-        }
-
         try {
-            const url = this.createReportUrl(params);
+            const url = this.createReportUrl(this.createReportParams(this.assets));
             const response = await fetch(url.href);
             const text = await response.text();
             console.log(url.href, text);

@@ -40,3 +40,9 @@ npm ci
 * Moonwell Monitor: Проверка доступной ликвидности и риска ликвидации (shortfall) в сетях BASE/OPT.
 * Moonwell Transactions - withdraw, repay, borrow, supply
 
+## Position classes
+
+`classes/Position.ts` defines the shared position contract and `LENDING_BOT_URL`.
+`MoonwellPosition`, `MorphoPosition`, and `HLPosition` implement position retrieval and reporting.
+Moonwell additionally exposes `getRecommend()`, `loop(amount)`, and `deLoop(amount)`.
+Hyperliquid reports its generated lending model to the console only.

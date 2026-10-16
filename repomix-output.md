@@ -39,24 +39,22 @@ The content is organized as follows:
 
 # Directory Structure
 ```
+classes/
+  HLPosition.ts
+  MoonwellPosition.ts
+  MorphoPosition.ts
+  Position.ts
 utils/
   hyperliquid/
-    getHyperliquidPositions.ts
     transformer.ts
   invest_legal/
     recommend.ts
-  looping/
-    deLoop.ts
-    loop.ts
   moonwell/
     borrowAsset.ts
     getMoonwellData.ts
-    getMoonwellPositions.ts
     repayAsset.ts
     supplyMoonwellAsset.ts
     withdrawMoonwellAsset.ts
-  morpho/
-    getMorphoPositions.ts
   uniswap/
     swap.ts
   loadWallet.ts
@@ -68,6 +66,126 @@ moonwellUtils.ts
 ```
 
 # Files
+
+## File: classes/HLPosition.ts
+```typescript
+import {WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {transformHyperliquidToLandingModel, type LandingModelData} from "../utils/hyperliquid/transformer.js";
+⋮----
+type HyperliquidPositionData = {
+    coin: string;
+    szi: string;
+    leverage: {
+        type: string;
+        value: number;
+    };
+    entryPx: string;
+    positionValue: string;
+    unrealizedPnl: string;
+    liquidationPx: string | null;
+    marginUsed: string;
+};
+⋮----
+type ClearinghouseState = {
+    marginSummary: {accountValue: string};
+    crossMaintenanceMarginUsed: string;
+    assetPositions: {position: HyperliquidPositionData}[];
+};
+⋮----
+type SpotTokenBalance = {
+    coin: string;
+    total: string;
+};
+⋮----
+type SpotClearinghouseState = {
+    balances: SpotTokenBalance[];
+};
+⋮----
+function isRecord(value: unknown): value is Record<string, unknown>
+⋮----
+function isNumericString(value: unknown): value is string
+⋮----
+function isHyperliquidPosition(value: unknown): value is HyperliquidPositionData
+⋮----
+function isClearinghouseState(value: unknown): value is ClearinghouseState
+⋮----
+function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
+⋮----
+async function postToHyperliquidInfo(type: string): Promise<unknown>
+⋮----
+export class HLPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+```
+
+## File: classes/MoonwellPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {CHAIN, CONFIG, currentNetwork, getEnv, LENDING, OPT_CHAIN, POOLS, provider, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
+import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
+import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
+import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
+import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
+import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
+import {wallet} from "../utils/loadWallet.js";
+⋮----
+function getHumanBalance(balances: WalletBalances, token: SupportedToken): number
+⋮----
+export class MoonwellPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+⋮----
+async getRecommend(): Promise<LendingLeverageResult>
+⋮----
+async loop(borrowAmount: number): Promise<void>
+⋮----
+async deLoop(supplyAmount: number): Promise<void>
+⋮----
+private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
+```
+
+## File: classes/MorphoPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {BASE_CHAIN, CONFIG, getEnv, LENDING, providers, WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {withRetry} from "../utils/utils.js";
+⋮----
+export class MorphoPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+```
+
+## File: classes/Position.ts
+```typescript
+import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {getEnv} from "../config.js";
+⋮----
+export abstract class Position {
+⋮----
+abstract getPosition(): Promise<boolean>;
+abstract reportPosition(): Promise<boolean>;
+⋮----
+async getRecommend(): Promise<LendingLeverageResult>
+⋮----
+async loop(_amount: number): Promise<void>
+⋮----
+async deLoop(_amount: number): Promise<void>
+⋮----
+protected createReportParams(lendingId: number): URLSearchParams
+⋮----
+protected createReportUrl(params: URLSearchParams): URL
+```
 
 ## File: utils/invest_legal/recommend.ts
 ```typescript
@@ -116,202 +234,6 @@ export async function fetchLendingInstruction(lendingId: number): Promise<Lendin
 // Наполняем возвращаемый объект только теми полями, которые пришли от сервера
 ⋮----
 // 3. Обработка сетевых ошибок (404, 500, таймауты)
-```
-
-## File: utils/looping/deLoop.ts
-```typescript
-import {getUniswapPoolPrice, getWalletBalances, sleep} from "../utils.js";
-import {POOLS, provider, type WalletBalances} from "../../config.js";
-import {withdrawMoonwellAsset} from "../moonwell/withdrawMoonwellAsset.js";
-import {swapEthToOp} from "../uniswap/swap.js";
-import {repayMoonwellAsset} from "../moonwell/repayAsset.js";
-⋮----
-export async function deLoop(supplyAmount: number)
-⋮----
-// Заходим в цикл withdraw-обмен только если OP мало, иначе сразу супплаим весь эфир
-⋮----
-// Проверяем, что ETH в кошельке не остался от прошлого прогона метода
-⋮----
-// Проверяем, вдруг транзакция repay выполнилась с задержкой
-```
-
-## File: utils/looping/loop.ts
-```typescript
-import {getUniswapPoolPrice, getWalletBalances, sleep} from "../utils.js";
-import {POOLS, provider, type WalletBalances} from "../../config.js";
-import {borrowMoonwellAsset} from "../moonwell/borrowAsset.js";
-import {swapToEth} from "../uniswap/swap.js";
-import {supplyMoonwellAsset} from "../moonwell/supplyMoonwellAsset.js";
-⋮----
-export async function loop(borrowAmount: number)
-⋮----
-// Заходим в цикл займ-обмен только если эфира мало, иначе сразу супплаим весь эфир
-⋮----
-// Берем займ - проверено
-⋮----
-// Проверяем, вдруг транзакция supply выполнилась с задержкой
-```
-
-## File: utils/moonwell/borrowAsset.ts
-```typescript
-import {CONFIG, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
-import {ethers} from "ethers";
-import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
-⋮----
-export async function borrowMoonwellAsset(
-	underlyingSymbol: SupportedToken,
-	amountHuman: number
-): Promise<boolean>
-⋮----
-// Проверяем, авторизован ли кошелек
-⋮----
-// 1. Извлекаем адрес напрямую из константы по текущей сети
-⋮----
-// Расчет суммы займа в Wei
-⋮----
-// 2. Вызов borrow
-⋮----
-// Константный хэш события Borrow(address borrower, uint256 borrowAmount, uint256 accountBorrows, uint256 totalBorrows)
-// Мы взяли его напрямую из успешного лога вашей транзакции (индекс 58)
-⋮----
-// Проверяем, есть ли этот хэш в Topic 0 хотя бы одного лога от нашего mToken контракта
-```
-
-## File: utils/moonwell/getMoonwellData.ts
-```typescript
-import {CONFIG, provider, WATCH_ADDRESS} from "../../config.js";
-import {ethers} from "ethers";
-import {withRetry} from "../utils.js";
-⋮----
-export async function getMoonwellData()
-⋮----
-// Возвращает: (error, liquidity, shortfall)
-// Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
-```
-
-## File: utils/moonwell/repayAsset.ts
-```typescript
-import {CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
-import {ethers, formatUnits} from "ethers";
-import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
-⋮----
-export async function repayMoonwellAsset(
-	underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
-	amountHuman: number               // Сколько токенов хотим вернуть
-)
-⋮----
-underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
-amountHuman: number               // Сколько токенов хотим вернуть
-⋮----
-// Проверяем, авторизован ли кошелек
-⋮----
-// Извлекаем адрес оригинального ERC-20 токена из конфигурации сети
-⋮----
-// Переводим человеческую сумму в Wei с учетом decimals токена
-⋮----
-// ================= БЛОК ЗАЩИТНЫХ ПРОВЕРОК БАЛАНСОВ =================
-⋮----
-// 1. Проверяем реальный баланс токенов на кошельке
-⋮----
-// 2. Проверяем точный текущий долг в Moonwell
-⋮----
-// КОРРЕКТИРОВКА 1: Защита от переплаты (если запросили больше реального долга)
-⋮----
-// КОРРЕКТИРОВКА 2: Защита от нехватки средств на кошельке
-⋮----
-// Оставляем флаг полного закрытия долга, если гасим 100% оставшейся задолженности
-⋮----
-// ================= APPROVE И ОТПРАВКА =================
-⋮----
-// Рассчитываем сумму аппрува с запасом х10 от необходимой
-⋮----
-// Верификация по нативному хэшу события RepayBorrow
-```
-
-## File: utils/moonwell/supplyMoonwellAsset.ts
-```typescript
-import {CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
-import {ethers} from "ethers";
-import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
-⋮----
-export async function supplyMoonwellAsset(
-	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
-	amountHuman: number               // Сколько токенов вносим в человеческом формате
-): Promise<boolean>
-⋮----
-underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
-amountHuman: number               // Сколько токенов вносим в человеческом формате
-⋮----
-// Проверяем, авторизован ли кошелек
-⋮----
-// todo отдельные методы для ETH и других
-// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
-⋮----
-// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был Base/Moonbeam) =================
-⋮----
-// todo отдельные методы для ETH и других
-⋮----
-// ================= ВАРИАНТ 2: ERC-20 ТОКЕНЫ (USDC, OP, WETH) =================
-⋮----
-// todo отдельные методы для ETH и других
-⋮----
-const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
-```
-
-## File: utils/morpho/getMorphoPositions.ts
-```typescript
-import {CONFIG, currentNetwork, getEnv, LENDING, provider, providers, WATCH_ADDRESS} from "../../config.js";
-import { ethers, formatUnits } from "ethers";
-import { withRetry } from "../utils.js";
-⋮----
-/**
- * Получает позицию cbBTC/USDC в BASE!
- */
-export async function getMorphoPositions(): Promise<boolean>
-⋮----
-// Адрес синглтона Morpho Blue на Base
-⋮----
-// ID конкретного рынка из вашей ссылки (USDC-cbBTC)
-⋮----
-// 1. Получаем состояние позиции пользователя на конкретном рынке
-// Возвращает: collateral (залог в cbBTC), borrowShares (доли долга в USDC)
-//const [collateral, borrowShares] = await withRetry<[bigint, bigint]>(() =>
-//  (morpho as any).position(MARKET_ID, WATCH_ADDRESS)
-//);
-⋮----
-// 1. Получаем состояние позиции пользователя на конкретном рынке (добавлена переменная supplyShares)
-⋮----
-// Если и залог, и долг равны нулю, выходим
-⋮----
-// В этой паре: Коллатераль = cbBTC, Заем (Долг) = USDC
-⋮----
-// 2. Расчет реального баланса залога (Supply Collateral)
-⋮----
-// 3. Расчет реального баланса долга (Borrow Balance)
-// В Morpho долг хранится в "долях" (shares). Нужно конвертировать доли в активы.
-⋮----
-// Получаем глобальное состояние рынка
-⋮----
-// Формула конвертации: (shares * totalBorrowAssets) / totalBorrowShares
-⋮----
-// Отправка данных на ваш сервер
-```
-
-## File: utils/loadWallet.ts
-```typescript
-import {ethers} from "ethers";
-import {getEnv, provider} from "../config.js";
-import readline from "readline/promises";
-import {HDNodeWallet, Wallet} from "ethers";
-⋮----
-async function loadWallet(provider: ethers.Provider)
-⋮----
-// Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
-⋮----
-// Восстанавливаем кошелек
 ```
 
 ## File: createKeystore.ts
@@ -378,64 +300,135 @@ price: calculatePrice(p.positionValue, p.szi) // 👈 Расчет цены шо
 price: 1 // 👈 Цена стейблкоина всегда равна 1
 ```
 
-## File: utils/moonwell/getMoonwellPositions.ts
+## File: utils/moonwell/borrowAsset.ts
 ```typescript
-import {CONFIG, currentNetwork, getEnv, LENDING, provider, WATCH_ADDRESS} from "../../config.js";
-import {ethers, formatUnits} from "ethers";
+import {CHAIN, CONFIG, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {ethers} from "ethers";
+import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
+import {wallet} from "../loadWallet.js";
+⋮----
+export async function borrowMoonwellAsset(
+	underlyingSymbol: SupportedToken,
+	amountHuman: number
+): Promise<boolean>
+⋮----
+// Проверяем, авторизован ли кошелек
+⋮----
+// 1. Извлекаем адрес напрямую из константы по текущей сети
+⋮----
+// Расчет суммы займа в Wei
+⋮----
+// 2. Вызов borrow
+⋮----
+// Константный хэш события Borrow(address borrower, uint256 borrowAmount, uint256 accountBorrows, uint256 totalBorrows)
+// Мы взяли его напрямую из успешного лога вашей транзакции (индекс 58)
+⋮----
+// Проверяем, есть ли этот хэш в Topic 0 хотя бы одного лога от нашего mToken контракта
+```
+
+## File: utils/moonwell/getMoonwellData.ts
+```typescript
+import {CHAIN, CONFIG, currentNetwork, provider, WATCH_ADDRESS} from "../../config.js";
+import {ethers} from "ethers";
 import {withRetry} from "../utils.js";
 ⋮----
-export async function getMoonwellPositions(): Promise<boolean>
+export async function getMoonwellData()
 ⋮----
-// Используем с проверкой на случай, если пользователя нет в конфиге
+// Возвращает: (error, liquidity, shortfall)
+// Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
+```
+
+## File: utils/moonwell/repayAsset.ts
+```typescript
+import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {ethers, formatUnits} from "ethers";
+import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
+import {wallet} from "../loadWallet.js";
 ⋮----
-// 1. Получаем адреса всех доступных рынков Moonwell в текущей сети
+export async function repayMoonwellAsset(
+	underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
+	amountHuman: number               // Сколько токенов хотим вернуть
+)
 ⋮----
-// Создаем инстанс контракта конкретного рынка (например, mUSDC или mWETH)
+underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
+amountHuman: number               // Сколько токенов хотим вернуть
 ⋮----
-// 2. Получаем слепок аккаунта для этого рынка
-// Возвращает: (error, баланс_mToken, баланс_займа, внутренний_курс_обмена)
+// Проверяем, авторизован ли кошелек
 ⋮----
-// Если балансы нулевые, пропускаем этот токен, чтобы не спамить в консоль
+// Извлекаем адрес оригинального ERC-20 токена из конфигурации сети
 ⋮----
-// Получаем тикер рынка (например, "mUSDC")
+// Переводим человеческую сумму в Wei с учетом decimals токена
 ⋮----
-const underlyingSymbol = mTokenSymbol.substring(1); // Отсекаем первую 'm', получаем 'USDC'
+// ================= БЛОК ЗАЩИТНЫХ ПРОВЕРОК БАЛАНСОВ =================
 ⋮----
-// 3. Расчет реального баланса актива (Supply Balance)
-// mTokens имеют свой баланс, который увеличивается за счет процентов.
-// Формула: (баланс_mToken * курс_обмена) / 1e18
+// 1. Проверяем реальный баланс токенов на кошельке
 ⋮----
-// 4. Расчет баланса долга (Borrow Balance)
+// 2. Проверяем точный текущий долг в Moonwell
 ⋮----
-const text = await response.text(); // Читаем ответ как строку
-console.log(url.href, text); // Выведет чистый текст ответа
+// КОРРЕКТИРОВКА 1: Защита от переплаты (если запросили больше реального долга)
 ⋮----
-/**
- * Получает текущие ставки Supply APY и Borrow APY для конкретного рынка Moonwell (Optimism/Base)
- * @param mToken Инстанс контракта ethers.Contract для конкретного mToken
- * @returns Массив строк [formattedSupplyAPY, formattedBorrowAPY]
- */
-export async function calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
+// КОРРЕКТИРОВКА 2: Защита от нехватки средств на кошельке
 ⋮----
-// 5. Определение процентной ставки по токену
-// 5.1. Запрашиваем rate per block напрямую из контракта mToken
+// Оставляем флаг полного закрытия долга, если гасим 100% оставшейся задолженности
 ⋮----
-// 5.2. Переводим BigInt в обычное дробное число (деля на 1e18)
+// ================= APPROVE И ОТПРАВКА =================
 ⋮----
-// 3. Расчет APY по формуле сложного процента (Compounding) за 365 дней
-const SECONDS_PER_YEAR = 365 * 24 * 60 * 60; // 31536000 секунд
+// Рассчитываем сумму аппрува с запасом х10 от необходимой
 ⋮----
-// Формула: (1 + rate_per_second)^seconds_per_year - 1
+// Верификация по нативному хэшу события RepayBorrow
+```
+
+## File: utils/loadWallet.ts
+```typescript
+import {ethers} from "ethers";
+import {getEnv} from "../config.js";
+import readline from "readline/promises";
+import {HDNodeWallet, Wallet} from "ethers";
 ⋮----
-// 4. Возвращаем массив с округлением до 2 знаков после запятой
+async function loadWallet(provider: ethers.Provider)
 ⋮----
-// Возвращаем дефолтные нули в случае непредвиденного сбоя, чтобы не ломать основной цикл
+// Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
+⋮----
+// Восстанавливаем кошелек
+⋮----
+export async function initializeWallet(provider: ethers.Provider): Promise<void>
+```
+
+## File: utils/moonwell/supplyMoonwellAsset.ts
+```typescript
+import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, OPT_CHAIN, type SupportedToken} from "../../config.js";
+import {ethers} from "ethers";
+import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
+import {wallet} from "../loadWallet.js";
+⋮----
+export async function supplyMoonwellAsset(
+	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
+	amountHuman: number               // Сколько токенов вносим в человеческом формате
+): Promise<boolean>
+⋮----
+underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
+amountHuman: number               // Сколько токенов вносим в человеческом формате
+⋮----
+// Проверяем, авторизован ли кошелек
+⋮----
+// todo отдельные методы для ETH и других
+// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
+⋮----
+// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был BASE/Moonbeam) =================
+⋮----
+// todo отдельные методы для ETH и других
+⋮----
+// ================= ВАРИАНТ 2: ERC-20 ТОКЕНЫ (USDC, OP, WETH) =================
+⋮----
+// todo отдельные методы для ETH и других
+⋮----
+const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
 ```
 
 ## File: utils/moonwell/withdrawMoonwellAsset.ts
 ```typescript
 import { ethers, formatUnits } from "ethers";
-import { CONFIG, currentNetwork, MOONWELL_MARKETS, provider, type SupportedToken } from "../../config.js";
+import { CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, provider, type SupportedToken } from "../../config.js";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 ⋮----
@@ -466,189 +459,6 @@ gasPrice: currentGasPrice // dRPC больше не будет делать си
 // Вызываем ваш метод разбора ошибок (он напечатает, что квитанции нет)
 ⋮----
 return false; // Бот продолжает жить и выполнять главный цикл
-```
-
-## File: utils/utils.ts
-```typescript
-import {
-	BUY_TOKEN,
-	CONFIG,
-	POOLS,
-	provider,
-	SELL_TOKEN,
-	type SupportedToken,
-	type WalletBalances,
-	WATCH_ADDRESS
-} from "../config.js";
-import {ethers, formatUnits} from 'ethers';
-⋮----
-const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
-⋮----
-/**
- * Универсальная обертка для повторных попыток выполнения асинхронных функций
- * @param fn - Функция, которую нужно выполнить
- * @param retries - Количество попыток (по умолчанию 3)
- * @param delay - Начальная задержка в мс (по умолчанию 1000)
- */
-export async function withRetry<T>(
-    fn: () => Promise<T>,
-    retries: number = 3,
-    delay: number = 1000
-): Promise<T>
-⋮----
-// Проверяем, является ли ошибка временным сбоем (таймаут, лимиты, сетевой сбой)
-⋮----
-// Экспоненциальное увеличение задержки (1s -> 2s -> 4s)
-⋮----
-// Если попытки кончились или ошибка критическая — выбрасываем её дальше
-⋮----
-// Инициализация LI.FI SDK
-// Не используется в настоящее время
-⋮----
-// здесь можно добавить настройки чейнов, если нужно
-⋮----
-export async function getJumperQuote()
-⋮----
-fromAmount: '1000000000000000000', // 1 ETH
-⋮----
-slippage: 0.005, // 0.5%
-order: 'CHEAPEST' as const, // Принудительно искать самый дешевый вариант
-insurance: false,  // Отключить страховку, если она включена по умолчанию
-⋮----
-// Для USDC указываем 6 знаков
-⋮----
-//console.dir(quote.estimate, {depth: null});
-⋮----
-export async function get0xQuoteV2(amountInEth: string)
-⋮----
-//const currentNetwork = CONFIG.NETWORKS[CONFIG.CHAIN];
-⋮----
-// Параметры согласно документации v2
-// @ts-ignore
-⋮----
-chainId: CONFIG.NETWORKS[CONFIG.CHAIN].ID, // Optimism
-sellToken: sellTokenAddr, // ETH
-⋮----
-taker: WATCH_ADDRESS, // Адрес того, кто будет делать обмен
-⋮----
-"0x-version": "v2", // Обязательно для нового API
-⋮----
-// В v2 ошибки часто возвращаются в формате JSON с полем "reason"
-⋮----
-// В v2 структура ответа может отличаться: ищите buyAmount в объекте
-⋮----
-// console.dir(data, {depth: null});
-⋮----
-// Если fetch failed, смотрим причину (cause)
-⋮----
-/**
- * Возвращает стоимость ETH в OP (эфир в оптимизмах)
- *
- * @param pool
- * @param provider
- */
-export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider)
-⋮----
-// Получаем текущий слепок пула (без затрат газа)
-⋮----
-// Математика Uniswap V3 для расчета цены из tick
-// Цена ETH относительно OP = 1.0001 ^ tick
-⋮----
-export async function estimatePriceImpact(
-    provider: ethers.JsonRpcProvider,
-    amountInHuman: number, // Сколько OP мы хотим поменять (например, 1000)
-    poolAddress: string,
-    abi: string[],
-)
-⋮----
-amountInHuman: number, // Сколько OP мы хотим поменять (например, 1000)
-⋮----
-// 1. ПОЛУЧЕНИЕ ИСХОДНЫХ ДАННЫХ ПУЛА
-⋮----
-// Считаем стандартный L2 Execution Fee
-⋮----
-const L2_GAS_LIMIT = BigInt(150000); // Оценка лимита газа исполнения на L2
-⋮----
-// Суммарный газ (L1 + L2)
-⋮----
-// 3. МАТЕМАТИКА СВОПА И ПОТЕРЬ
-⋮----
-// Идеальный результат без издержек
-⋮----
-// Переводим стоимость газа из ETH в OP по текущему курсу для сложения
-⋮----
-// Рассчитываем движение цены
-⋮----
-// Итоговый чистый профит на кошельке
-⋮----
-// Финансовые потери пула
-⋮----
-// ИТОГО (Пул + Реальный Газ L1 + L2)
-⋮----
-async function l1FeeEstimated(provider: ethers.JsonRpcProvider)
-⋮----
-// 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPTIMISM (L1 Ecotone + L2)
-⋮----
-const oracleDecimals = await oracleContract.decimals(); // Обычно 6
-⋮----
-// Приблизительный объем calldata газа для Swap-транзакции exactInputSingle (~300 байт)
-const calldataGas = BigInt(4200 * 2); // берем с 2х запасом
-⋮----
-// Актуальная формула расчета L1 Data Fee (Bedrock/Ecotone с BlobSpace)
-// Формула: calldataGas * (16 * l1BaseFee * baseFeeScalar + blobBaseFee * blobBaseFeeScalar) / (16 * 10^decimals)
-⋮----
-export async function getWalletBalances(): Promise<WalletBalances>
-⋮----
-// 1. СНАЧАЛА ПОЛУЧАЕМ БАЛАНС НАТИВНОГО ETH
-// Нативный баланс запрашивается напрямую через провайдер, а не через контракт
-⋮----
-// 2. ПОЛУЧАЕМ БАЛАНСЫ ОСТАЛЬНЫХ ERC-20 ТОКЕНОВ ИЗ КОНФИГА
-// Перебираем токены, которые описаны в CONFIG.TOKEN_DECIMALS (например, USDC, OP, WETH, cbBTC)
-⋮----
-// Пропускаем ETH, так как нативный баланс мы уже получили выше
-⋮----
-// Берем адрес контракта токена из конфигурации вашей текущей сети
-⋮----
-// ЗДЕСЬ ДОБАВЛЯЕМ ПРОВЕРКУ-ЗАЩИТУ:
-⋮----
-continue; // Пропускаем токен, если его адреса нет в этой сети
-⋮----
-// Запрашиваем баланс токена на кошельке
-//const balanceWei = await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
-⋮----
-// Используем decimals из глобального конфига
-⋮----
-// Выводим в консоль только ненулевые балансы, чтобы не спамить
-⋮----
-async function getTokenBalanceWei(tokenSymbol: SupportedToken)
-⋮----
-// ДОБАВЛЯЕМ ПРАВИЛЬНУЮ ПРОВЕРКУ-ЗАЩИТУ ДЛЯ ФУНКЦИИ:
-⋮----
-return 0n; // Возвращаем нулевой баланс (BigInt), если адреса нет в сети
-⋮----
-// Запрашиваем баланс токена на кошельке
-⋮----
-async function getTokenBalanceHuman(tokenSymbol: SupportedToken)
-⋮----
-// Используем decimals из глобального конфига
-⋮----
-/**
- * Вычисляет точную стоимость газа транзакции в ETH (L1 + L2) на основе квитанции
- */
-export function calculateTxGasCost(receipt: ethers.TransactionReceipt): number
-⋮----
-// 1. Считаем L2 Execution Fee
-⋮----
-// 2. Считаем L1 Data Fee (специфично для Optimism/Base)
-// В ethers.js v6 свойство l1Fee может лежать в сырых данных квитанции
-⋮----
-// 3. Суммируем и переводим в человеческий ETH
-⋮----
-export async function reportGasSpent(receipt: ethers.TransactionReceipt): Promise<void>
-⋮----
-export async function reportErrorGasSpent(err: any): Promise<void>
-⋮----
-export function sleep(ms: number): Promise<null>
 ```
 
 ## File: utils/uniswap/swap.ts
@@ -728,104 +538,158 @@ wallet.address  // Конечный получатель нативного ETH 
 ⋮----
 // Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию
 ⋮----
-gasLimit: 350000 // Лимит с запасом, Optimism спишет копейки по факту
+gasLimit: 350000 // Лимит с запасом, OPT спишет копейки по факту
 ```
 
-## File: utils/hyperliquid/getHyperliquidPositions.ts
+## File: utils/utils.ts
 ```typescript
-import {WATCH_ADDRESS} from "../../config.js";
-import {transformHyperliquidToLandingModel} from "./transformer.js";
+import {
+	BUY_TOKEN,
+	OPT_CHAIN,
+	CHAIN,
+	CONFIG,
+	POOLS,
+	provider,
+	SELL_TOKEN,
+	type SupportedToken,
+	type WalletBalances,
+	WATCH_ADDRESS
+} from "../config.js";
+import {ethers, formatUnits} from 'ethers';
 ⋮----
-type HyperliquidPosition = {
-    coin: string;
-    szi: string;
-    leverage: {
-        type: string;
-        value: number;
-    };
-    entryPx: string;
-    positionValue: string;
-    unrealizedPnl: string;
-    liquidationPx: string | null;
-    marginUsed: string;
-};
+const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
 ⋮----
-type ClearinghouseState = {
-    marginSummary: {
-        accountValue: string;
-    };
-    crossMaintenanceMarginUsed: string; // 👈 Добавлено новое системное поле
-    assetPositions: {
-        position: HyperliquidPosition;
-    }[];
-};
+/**
+ * Универсальная обертка для повторных попыток выполнения асинхронных функций
+ * @param fn - Функция, которую нужно выполнить
+ * @param retries - Количество попыток (по умолчанию 3)
+ * @param delay - Начальная задержка в мс (по умолчанию 1000)
+ */
+export async function withRetry<T>(
+    fn: () => Promise<T>,
+    retries: number = 3,
+    delay: number = 1000
+): Promise<T>
 ⋮----
-crossMaintenanceMarginUsed: string; // 👈 Добавлено новое системное поле
+// Проверяем, является ли ошибка временным сбоем (таймаут, лимиты, сетевой сбой)
 ⋮----
-type SpotUserBalances = {
-    balances: SpotTokenBalance[];
-};
+// Экспоненциальное увеличение задержки (1s -> 2s -> 4s)
 ⋮----
-type SpotTokenBalance = {
-    coin: string;
-    total: string;
-    hold: string;
-    entryPx: string;
-};
+// Если попытки кончились или ошибка критическая — выбрасываем её дальше
 ⋮----
-type SpotClearinghouseState = {
-    balances: SpotTokenBalance[];
-};
+/**
+ * Возвращает стоимость ETH в OP (эфир в оптимизмах)
+ *
+ * @param pool
+ * @param provider
+ */
+export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider)
 ⋮----
-function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
+// Получаем текущий слепок пула (без затрат газа)
 ⋮----
-function isRecord(value: unknown): value is Record<string, unknown>
+// Математика Uniswap V3 для расчета цены из tick
+// Цена ETH относительно OP = 1.0001 ^ tick
 ⋮----
-function isNumericString(value: unknown): value is string
+export async function estimatePriceImpact(
+    provider: ethers.JsonRpcProvider,
+    amountInHuman: number, // Сколько OP мы хотим поменять (например, 1000)
+    poolAddress: string,
+    abi: string[],
+)
 ⋮----
-function isHyperliquidPosition(value: unknown): value is HyperliquidPosition
+amountInHuman: number, // Сколько OP мы хотим поменять (например, 1000)
 ⋮----
-function isClearinghouseState(value: unknown): value is ClearinghouseState
+// 1. ПОЛУЧЕНИЕ ИСХОДНЫХ ДАННЫХ ПУЛА
 ⋮----
-// --- Валидатор для Спота ---
-function isSpotUserBalances(value: unknown): value is SpotUserBalances
+// Считаем стандартный L2 Execution Fee
 ⋮----
-// Универсальный метод для отправки запросов к API info
-async function postToHyperliquidInfo(type: string): Promise<unknown>
+const L2_GAS_LIMIT = BigInt(150000); // Оценка лимита газа исполнения на L2
 ⋮----
-export async function getHyperliquidPositions(): Promise<boolean>
+// Суммарный газ (L1 + L2)
 ⋮----
-// Делаем запросы параллельно к правильным эндпоинтам Hyperliquid
+// 3. МАТЕМАТИКА СВОПА И ПОТЕРЬ
 ⋮----
-postToHyperliquidInfo("spotClearinghouseState") // <-- ИСПРАВЛЕНО ЗДЕСЬ
+// Идеальный результат без издержек
 ⋮----
-if (!isSpotClearinghouseState(spotRes)) { // <-- ИСПРАВЛЕНО ЗДЕСЬ
+// Переводим стоимость газа из ETH в OP по текущему курсу для сложения
 ⋮----
-// 1. Ищем баланс USDC на споте
+// Рассчитываем движение цены
 ⋮----
-// 2. Считаем суммарный нереализованный PnL по всем фьючерсным позициям
+// Итоговый чистый профит на кошельке
 ⋮----
-// 3. Вычисляем итоговый Total Equity в стиле веб-интерфейса Hyperliquid
+// Финансовые потери пула
 ⋮----
-// 4. Получаем Maintenance Margin из ответа ноды Hyperliquid
+// ИТОГО (Пул + Реальный Газ L1 + L2)
 ⋮----
-// 5. Рассчитываем Margin Ratio (уровень риска в процентах)
-// Формула: (Maintenance Margin / Total Equity) * 100%
+async function l1FeeEstimated(provider: ethers.JsonRpcProvider)
 ⋮----
-// 6. Считаем чистый долларовый буфер до начала ликвидаций
+// 2. СОВРЕМЕННЫЙ АВТОНОМНЫЙ РАСЧЕТ ГАЗА OPT (L1 Ecotone + L2)
 ⋮----
-// Находим totalEquity по нашей финальной формуле (чистый баланс спота USDC)
-/// const usdcSpot = spotRes.balances.find(b => b.coin === "USDC");
-/// const totalEquity = usdcSpot ? Number(usdcSpot.total) : 0;
+const oracleDecimals = await oracleContract.decimals(); // Обычно 6
 ⋮----
-// Вызываем трансформер
+// Приблизительный объем calldata газа для Swap-транзакции exactInputSingle (~300 байт)
+const calldataGas = BigInt(4200 * 2); // берем с 2х запасом
 ⋮----
-// Теперь landingModel.supply и landingModel.borrow содержат готовые массивы
+// Актуальная формула расчета L1 Data Fee (Bedrock/Ecotone с BlobSpace)
+// Формула: calldataGas * (16 * l1BaseFee * baseFeeScalar + blobBaseFee * blobBaseFeeScalar) / (16 * 10^decimals)
+⋮----
+export async function getWalletBalances(): Promise<WalletBalances>
+⋮----
+// 1. СНАЧАЛА ПОЛУЧАЕМ БАЛАНС НАТИВНОГО ETH
+// Нативный баланс запрашивается напрямую через провайдер, а не через контракт
+⋮----
+// 2. ПОЛУЧАЕМ БАЛАНСЫ ОСТАЛЬНЫХ ERC-20 ТОКЕНОВ ИЗ КОНФИГА
+// Перебираем токены, которые описаны в CONFIG.TOKEN_DECIMALS (например, USDC, OP, WETH, cbBTC)
+⋮----
+// Пропускаем ETH, так как нативный баланс мы уже получили выше
+⋮----
+// Берем адрес контракта токена из конфигурации вашей текущей сети
+⋮----
+// ЗДЕСЬ ДОБАВЛЯЕМ ПРОВЕРКУ-ЗАЩИТУ:
+⋮----
+continue; // Пропускаем токен, если его адреса нет в этой сети
+⋮----
+// Запрашиваем баланс токена на кошельке
+//const balanceWei = await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
+⋮----
+// Используем decimals из глобального конфига
+⋮----
+// Выводим в консоль только ненулевые балансы, чтобы не спамить
+⋮----
+async function getTokenBalanceWei(tokenSymbol: SupportedToken)
+⋮----
+// ДОБАВЛЯЕМ ПРАВИЛЬНУЮ ПРОВЕРКУ-ЗАЩИТУ ДЛЯ ФУНКЦИИ:
+⋮----
+return 0n; // Возвращаем нулевой баланс (BigInt), если адреса нет в сети
+⋮----
+// Запрашиваем баланс токена на кошельке
+⋮----
+async function getTokenBalanceHuman(tokenSymbol: SupportedToken)
+⋮----
+// Используем decimals из глобального конфига
+⋮----
+/**
+ * Вычисляет точную стоимость газа транзакции в ETH (L1 + L2) на основе квитанции
+ */
+export function calculateTxGasCost(receipt: ethers.TransactionReceipt): number
+⋮----
+// 1. Считаем L2 Execution Fee
+⋮----
+// 2. Считаем L1 Data Fee (специфично для OPT/BASE)
+// В ethers.js v6 свойство l1Fee может лежать в сырых данных квитанции
+⋮----
+// 3. Суммируем и переводим в человеческий ETH
+⋮----
+export async function reportGasSpent(receipt: ethers.TransactionReceipt): Promise<void>
+⋮----
+export async function reportErrorGasSpent(err: any): Promise<void>
+⋮----
+export function sleep(ms: number): Promise<null>
 ```
 
 ## File: moonwellUtils.ts
 ```typescript
-import {CONFIG, currentNetwork} from "./config.js";
+import {CHAIN, CONFIG, currentNetwork} from "./config.js";
 import {ethers} from 'ethers';
 import {withRetry} from "./utils/utils.js";
 ⋮----
@@ -843,7 +707,7 @@ export async function initializeMTokensCache(provider: ethers.JsonRpcProvider): 
 
 ## File: config.ts
 ```typescript
-import {getAddress} from 'ethers';
+import {ethers, getAddress} from 'ethers';
 ⋮----
 // Функция-помощник для проверки обязательных переменных
 export const getEnv = (key: string): string =>
@@ -856,10 +720,9 @@ type TokenList = {
     [K in SupportedToken]?: string;
 };
 ⋮----
-// Создаем массив сетей в рантайме (as const обязателен)
+// Создаем список сетей в рантайме
 ⋮----
-// 2. Генерируем тип 'BASE' | 'OPT' прямо из массива
-type ChainType = typeof CHAINS[number];
+export type ChainType = typeof CHAIN_NAMES[number];
 ⋮----
 // Описываем структуру Moonwell
 interface MoonwellConfig {
@@ -871,12 +734,11 @@ interface NetworkSettings {
     ID: string;
     RPC_URL: string;
     TOKENS: TokenList;
-    MOONWELL: MoonwellConfig;
+    MOONWELL?: MoonwellConfig;
 }
 ⋮----
 // Типизируем весь конфиг
 interface AppConfig {
-    CHAIN: ChainType; // Ограничиваем выбор сетей
     TOKEN_DECIMALS:
     // Делаем все токены из списка необязательными (через знак ?)
         { [K in SupportedToken]?: number } &
@@ -885,8 +747,6 @@ interface AppConfig {
         // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
         { [key: string]: number };
     ZEROX_API_KEY: string;
-    SLIPPAGE: number;
-    INTEGRATOR_ID: string,
     NETWORKS: {
         [key in ChainType]: NetworkSettings;
     };
@@ -900,44 +760,25 @@ interface AppConfig {
     };
 }
 ⋮----
-CHAIN: ChainType; // Ограничиваем выбор сетей
-⋮----
 // Делаем все токены из списка необязательными (через знак ?)
 ⋮----
 // И жестко требуем наличие поля default
 ⋮----
 // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
 ⋮----
-CHAIN:    'OPT', //'BASE', //
+RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
 ⋮----
 RPC_URL: 'https://mainnet.base.org', //https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
 ⋮----
-RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
-⋮----
 // Добавляем ABI для самих mToken контрактов
-⋮----
-/** @see supplyMoonwellAsset применение разных методов в зависимости от токена и сети*/
-// "function mint(uint256 mintAmount) external returns (uint256)", // Для ETH/OPT
-// "function mint() external payable", // Для ETH/Base
-// "function mint(uint256 mintAmount) external returns (uint256)", // Для НЕ ETH
-⋮----
-/** @see withdrawMoonwellAsset применение разных методов в зависимости от токена и сети*/
-// "function redeemUnderlying(address recipient, uint256 redeemAmount) external returns (uint256)", // withdraw ETH/OPT
-// "function redeemUnderlying(uint256 redeemAmount) external", // withdraw НЕ ETH
 ⋮----
 "function borrow(uint256 borrowAmount) external", // borrow
 "function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
 "function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
-// "function supplyRatePerBlock() view returns (uint256)", //
-// "function borrowRatePerBlock() view returns (uint256)", //
 ⋮----
 // Нам нужен стандартный минимальный ABI для работы с ERC-20 токенами
 ⋮----
 // Параметры для API
-⋮----
-// Параметры бота
-INTEGRATOR_ID: 'lifi', // или ваш ID
-SLIPPAGE: 0.005,      // 0.5%
 ⋮----
 EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
 EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
@@ -945,22 +786,7 @@ OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPric
 ⋮----
 // Настройки
 ⋮----
-export const BUY_TOKEN = 'USDC';//'OP';
-⋮----
-import {ethers, FetchRequest} from 'ethers';
-⋮----
-connection.timeout = 5000; // Таймаут 5 секунд
-⋮----
-{ batchMaxCount: 1 } // Ваши настройки батча
-⋮----
-// Создаем объект провайдеров для всех поддерживаемых сетей
-⋮----
-/* Версия без timeout
-export const provider = new ethers.JsonRpcProvider(RPC,
-    undefined,
-    {batchMaxCount: 1} // Запрещаем собирать более 1 запроса в пакет);
-);
-*/
+export function setActiveProvider(activeProvider: ethers.JsonRpcProvider): void
 ⋮----
 export interface WalletBalances {
     [tokenSymbol: string]: {
@@ -972,15 +798,13 @@ export interface WalletBalances {
 
 ## File: index.ts
 ```typescript
-import {CONFIG, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
-import {getMoonwellPositions} from "./utils/moonwell/getMoonwellPositions.js";
-import {wallet} from "./utils/loadWallet.js";
-import {fetchLendingInstruction} from "./utils/invest_legal/recommend.js";
-import {deLoop} from "./utils/looping/deLoop.js";
-import {loop} from "./utils/looping/loop.js";
-import {getMorphoPositions} from "./utils/morpho/getMorphoPositions.js";
-import {getHyperliquidPositions} from "./utils/hyperliquid/getHyperliquidPositions.js";
+import {initializeWallet, wallet} from "./utils/loadWallet.js";
+import {MoonwellPosition} from "./classes/MoonwellPosition.js";
+import {MorphoPosition} from "./classes/MorphoPosition.js";
+import {HLPosition} from "./classes/HLPosition.js";
+import {FetchRequest, ethers} from "ethers";
 ⋮----
 // Глобальный перехватчик неисполненных промисов
 ⋮----

@@ -1,12 +1,9 @@
 import {CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
-import {getMoonwellPositions} from "./utils/moonwell/getMoonwellPositions.js";
 import {initializeWallet, wallet} from "./utils/loadWallet.js";
-import {fetchLendingInstruction} from "./utils/invest_legal/recommend.js";
-import {deLoop} from "./utils/looping/deLoop.js";
-import {loop} from "./utils/looping/loop.js";
-import {getMorphoPositions} from "./utils/morpho/getMorphoPositions.js";
-import {getHyperliquidPositions} from "./utils/hyperliquid/getHyperliquidPositions.js";
+import {MoonwellPosition} from "./classes/MoonwellPosition.js";
+import {MorphoPosition} from "./classes/MorphoPosition.js";
+import {HLPosition} from "./classes/HLPosition.js";
 import {FetchRequest, ethers} from "ethers";
 
 for (const chainName of CHAIN_NAMES) {
@@ -43,6 +40,9 @@ process.on('unhandledRejection', (reason: any, promise) => {
 });
 
 async function main() {
+    const moonwellPosition = new MoonwellPosition();
+    const morphoPosition = new MorphoPosition();
+    const hlPosition = new HLPosition();
     let borrowAmount = 0; // подлупка в токенах займа (OP)
     let supplyAmount = 0; // разлупка в токенах займа (OP)
     let borrowedToken = 'OP';
@@ -51,13 +51,16 @@ async function main() {
     let cycles = 0;
 
     while (true) {
-        await getMorphoPositions();
-        await getHyperliquidPositions();
+        if (await morphoPosition.getPosition()) await morphoPosition.reportPosition();
+        if (await hlPosition.getPosition()) await hlPosition.reportPosition();
 
         if (CHAIN !== OPT_CHAIN) return;
 
         try {
-            if (!await getMoonwellPositions()) {
+            if (!await moonwellPosition.getPosition()) {
+                continue;
+            }
+            if (!await moonwellPosition.reportPosition()) {
                 continue;
             }
 
@@ -65,7 +68,7 @@ async function main() {
             let walletBalances = await getWalletBalances() as WalletBalances;
             console.log(walletBalances);
 
-            const data = await fetchLendingInstruction(4);
+            const data = await moonwellPosition.getRecommend();
 
             if (data.deloop) {
                 console.log("Получены данные для де-лупа:", data.deloop);
@@ -92,9 +95,9 @@ async function main() {
             if (CHAIN === OPT_CHAIN) {
                 if (wallet) {
                     if (borrowAmount) {
-                        await loop(borrowAmount);
+                        await moonwellPosition.loop(borrowAmount);
                     } else if (supplyAmount) {
-                        await deLoop(supplyAmount);
+                        await moonwellPosition.deLoop(supplyAmount);
                     }
                 }
             }

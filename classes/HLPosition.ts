@@ -1,8 +1,8 @@
 import {WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
-import {transformHyperliquidToLandingModel, type LandingModelData} from "../utils/hyperliquid/transformer.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+const HYPERLIQUID_LENDING_ID = 6;
 
 type HyperliquidPositionData = {
     coin: string;
@@ -91,10 +91,11 @@ async function postToHyperliquidInfo(type: string): Promise<unknown> {
 }
 
 export class HLPosition extends Position {
-    private landingModel: LandingModelData | undefined;
+    private positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
-        this.landingModel = undefined;
+        this.assets = {supply: {}, borrow: {}};
+        this.positionLoaded = false;
         console.log("--- Hyperliquid Account ---");
         console.log(`User: ${WATCH_ADDRESS}`);
 
@@ -116,6 +117,19 @@ export class HLPosition extends Position {
             const positions = marginRes.assetPositions
                 .map(({position}) => position)
                 .filter(position => Number(position.szi) !== 0);
+            for (const position of positions) {
+                const side = Number(position.szi) > 0 ? "supply" : "borrow";
+                this.assets[side][position.coin] =
+                    (this.assets[side][position.coin] ?? 0) + Math.abs(Number(position.szi));
+            }
+            for (const balance of spotRes.balances) {
+                const amount = Number(balance.total);
+                if (amount > 0) {
+                    this.assets.supply[balance.coin] =
+                        (this.assets.supply[balance.coin] ?? 0) + amount;
+                }
+            }
+
             const totalUnrealizedPnl = positions.reduce(
                 (sum, position) => sum + Number(position.unrealizedPnl),
                 0
@@ -159,22 +173,38 @@ export class HLPosition extends Position {
                 })));
             }
 
-            this.landingModel = transformHyperliquidToLandingModel({totalEquity, longs, shorts});
+            this.positionLoaded = true;
+
             return true;
         } catch (error) {
             console.error("Ошибка при получении позиций Hyperliquid:", error);
+
             return false;
         }
     }
 
     async reportPosition(): Promise<boolean> {
-        if (!this.landingModel) {
+        if (!this.positionLoaded) {
             throw new Error("Call getPosition() before reportPosition()");
         }
 
-        console.log("--- Сгенерированная модель для Лендинга ---");
-        console.log("Supply Model (Залоги):", this.landingModel.supply);
-        console.log("Borrow Model (Займы):", this.landingModel.borrow);
-        return true;
+        const params = this.createReportParams(HYPERLIQUID_LENDING_ID);
+        for (const [ticker, amount] of Object.entries(this.assets.supply)) {
+            params.set(`supply_${ticker}`, String(amount));
+        }
+        for (const [ticker, amount] of Object.entries(this.assets.borrow)) {
+            params.set(`borrow_${ticker}`, String(amount));
+        }
+
+        try {
+            const url = this.createReportUrl(params);
+            const response = await fetch(url.href);
+            const text = await response.text();
+            console.log(url.href, text);
+            return text === "OK";
+        } catch (error) {
+            console.error("Ошибка при отправке позиций Hyperliquid:", error);
+            return false;
+        }
     }
 }

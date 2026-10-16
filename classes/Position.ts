@@ -3,7 +3,17 @@ import {getEnv} from "../config.js";
 
 export const LENDING_BOT_URL = "https://invest.legal/bot/lendingCorrection";
 
+export type PositionAssets = {
+    supply: Record<string, number>;
+    borrow: Record<string, number>;
+};
+
 export abstract class Position {
+    assets: PositionAssets = {
+        supply: {},
+        borrow: {},
+    };
+
     abstract getPosition(): Promise<boolean>;
     abstract reportPosition(): Promise<boolean>;
 

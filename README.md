@@ -45,4 +45,5 @@ npm ci
 `classes/Position.ts` defines the shared position contract and `LENDING_BOT_URL`.
 `MoonwellPosition`, `MorphoPosition`, and `HLPosition` implement position retrieval and reporting.
 Moonwell additionally exposes `getRecommend()`, `loop(amount)`, and `deLoop(amount)`.
-Hyperliquid reports its generated lending model to the console only.
+Position instances expose `assets.supply` and `assets.borrow` maps of ticker/ID to token amount.
+Hyperliquid reports spot balances and perp positions to `LENDING_BOT_URL` with `lending_id=6`.

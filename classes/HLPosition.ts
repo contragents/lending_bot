@@ -18,9 +18,9 @@ type HyperliquidPositionData = {
 };
 
 type ClearinghouseState = {
-    marginSummary: {accountValue: string};
+    marginSummary: { accountValue: string };
     crossMaintenanceMarginUsed: string;
-    assetPositions: {position: HyperliquidPositionData}[];
+    assetPositions: { position: HyperliquidPositionData }[];
 };
 
 type SpotTokenBalance = {
@@ -122,13 +122,6 @@ export class HLPosition extends Position {
                 this.assets[side][position.coin] =
                     (this.assets[side][position.coin] ?? 0) + Math.abs(Number(position.szi));
             }
-            for (const balance of spotRes.balances) {
-                const amount = Number(balance.total);
-                if (amount > 0) {
-                    this.assets.supply[balance.coin] =
-                        (this.assets.supply[balance.coin] ?? 0) + amount;
-                }
-            }
 
             const totalUnrealizedPnl = positions.reduce(
                 (sum, position) => sum + Number(position.unrealizedPnl),
@@ -150,11 +143,17 @@ export class HLPosition extends Position {
 
             const longs = positions.filter(position => Number(position.szi) > 0);
             const shorts = positions.filter(position => Number(position.szi) < 0);
+            let sums = {LONG: 0, SHORT: 0};
+
             for (const [side, sidePositions] of [["LONG", longs], ["SHORT", shorts]] as const) {
                 const totalValue = sidePositions.reduce(
                     (sum, position) => sum + Number(position.positionValue),
                     0
                 );
+
+                // SUM USDC position for LONG and SHORT separately
+                sums[side] = totalValue;
+
                 console.log(`--- ${side} positions (${sidePositions.length}; notional ${totalValue.toFixed(2)} USDC) ---`);
                 if (sidePositions.length === 0) {
                     console.log("No open positions.");
@@ -171,7 +170,12 @@ export class HLPosition extends Position {
                     marginUsed: position.marginUsed,
                     liquidationPrice: position.liquidationPx ?? "n/a",
                 })));
+
+
             }
+
+            // Correcting borrow position
+            this.assets.borrow["USDC"] = sums.LONG - sums.SHORT - totalUsdcSpotValue;
 
             this.positionLoaded = true;
 

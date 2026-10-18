@@ -13,7 +13,11 @@ import {
     WATCH_ADDRESS
 } from "../config.js";
 import {Position} from "./Position.js";
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {
+    type LendingLeverageInstruction,
+    fetchLendingInstruction,
+    type LendingLeverageResult
+} from "../utils/invest_legal/recommend.js";
 import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
 import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
 import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
@@ -121,7 +125,7 @@ export class MoonwellPosition extends Position {
         }
     }
 
-    async loop(amount: number): Promise<void> {
+    async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
         if (!wallets[this.chain]) return;
 
         let walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
@@ -180,7 +184,7 @@ export class MoonwellPosition extends Position {
         }
     }
 
-    async deLoop(amount: number): Promise<void> {
+    async deLoop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
         if (!wallets[this.chain]) return;
 
         let walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;

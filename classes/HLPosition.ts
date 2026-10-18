@@ -1,6 +1,7 @@
 import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
 import {ethers} from "ethers";
 import {Position} from "./Position.js";
+import type {LendingLeverageInstruction} from "../utils/invest_legal/recommend.js";
 import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
 import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
 import {withRetry} from "../utils/utils.js";
@@ -104,8 +105,8 @@ export class HLPosition extends Position {
      * @param amount количество токена для разлупки
      * @param loop Массив Токен-количество
      */
-    async loop(amount: number, loop: Record<string, number>): Promise<void> {
-        const entries = Object.entries(loop)
+    async loop(amount: number, loop: LendingLeverageInstruction): Promise<void> {
+        const entries = Object.entries(loop.borrow ?? {})
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
 
         if (entries.length === 0) {
@@ -113,6 +114,9 @@ export class HLPosition extends Position {
 
             return;
         }
+
+        console.log('Borrows', entries, 'Supplys', loop.supply ?? {});
+        return;
 
         for (const [coin, size] of entries) {
             if (!coin.trim()) {
@@ -197,7 +201,7 @@ export class HLPosition extends Position {
      * @param amount количество токена для разлупки
      * @param deloop Массив Токен-количество
      */
-    async deLoop(amount: number, deloop: Record<string, number>): Promise<void> {
+    async deLoop(amount: number, deloop: LendingLeverageInstruction): Promise<void> {
         console.log('HL deloop', deloop);
         const privateKey = getEnv('HYPER_KEY');
         const address=getEnv('HYPER_ADDRESS');

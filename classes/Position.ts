@@ -1,4 +1,8 @@
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {
+    fetchLendingInstruction,
+    type LendingLeverageInstruction,
+    type LendingLeverageResult
+} from "../utils/invest_legal/recommend.js";
 import {BASE_CHAIN, type ChainType, getEnv, LENDING} from "../config.js";
 import {ethers} from "ethers";
 
@@ -52,7 +56,7 @@ export abstract class Position {
      * @param amount количество токена для подлупки
      * @param loop Массив Токен-количество
      */
-    async loop(amount: number, loop: Record<string, number>): Promise<void> {
+    async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
         console.log(`${this.constructor.name} does not support looping`);
     }
 
@@ -60,7 +64,7 @@ export abstract class Position {
      * @param amount количество токена для разлупки
      * @param deloop Массив Токен-количество
      */
-    async deLoop(amount: number, deloop: Record<string, number>): Promise<void> {
+    async deLoop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
         console.log(`${this.constructor.name} does not support de-looping`);
     }
 

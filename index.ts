@@ -76,6 +76,7 @@ async function main() {
                     // if (chain !== OPT_CHAIN) continue;
 
                     const data = await position.getRecommend();
+                    console.log(data, data.loop ?? {}, data.deloop ?? {});
 
                     // Получаем слепок всех балансов на кошельке
                     if (chain !== HL_CHAIN) {
@@ -86,14 +87,14 @@ async function main() {
                     if (data.deloop) {
                         console.log("Получены данные для де-лупа:", data.deloop);
 
-                        const entries = Object.entries(data.deloop);
+                        const entries = Object.entries(data.deloop.borrow ?? {});
 
                         if (entries.length > 0) {
                             [borrowedToken, supplyAmount] = entries[0]!;
                         }
                     } else if (data.loop) {
                         console.log("Получены данные для лупа:", data.loop);
-                        const entries = Object.entries(data.loop);
+                        const entries = Object.entries(data.loop.borrow ?? {});
 
                         if (entries.length > 0) {
                             [borrowedToken, borrowAmount] = entries[0]!;

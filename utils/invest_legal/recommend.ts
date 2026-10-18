@@ -10,8 +10,8 @@ interface LendingSuccessResponse {
 		supply?: Record<string, number>;
 		borrow?: Record<string, number>;
 
-		deloop?: Record<string, number>;
-		loop?: Record<string, number>;
+		deloop?: LendingLeverageInstruction;
+		loop?: LendingLeverageInstruction;
 	};
 }
 
@@ -22,10 +22,14 @@ interface LendingErrorResponse {
 
 type LendingApiResponse = LendingSuccessResponse | LendingErrorResponse;
 
-// Описываем возвращаемый тип функции согласно вашему требованию
+export interface LendingLeverageInstruction {
+	borrow?: Record<string, number>;
+	supply?: Record<string, number>;
+}
+
 export interface LendingLeverageResult {
-	deloop?: Record<string, number>;
-	loop?: Record<string, number>;
+	deloop?: LendingLeverageInstruction;
+	loop?: LendingLeverageInstruction;
 }
 
 /**
@@ -40,6 +44,8 @@ export async function fetchLendingInstruction(lendingId: number): Promise<Lendin
 	try {
 		const response = await axios.get<LendingApiResponse>(url);
 		const data = response.data;
+
+		console.dir(data);
 
 		// 1. Обработка внутренней ошибки бизнес-логики API
 		if (data.result === "error") {
@@ -57,10 +63,9 @@ export async function fetchLendingInstruction(lendingId: number): Promise<Lendin
 
 		// Наполняем возвращаемый объект только теми полями, которые пришли от сервера
 		if (rawData.deloop) result.deloop = rawData.deloop;
-		if (rawData.loop) result.loop = rawData.loop;
+		else if (rawData.loop) result.loop = rawData.loop;
 
 		return result;
-
 	} catch (error) {
 		// 3. Обработка сетевых ошибок (404, 500, таймауты)
 		if (axios.isAxiosError(error)) {

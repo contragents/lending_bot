@@ -81,8 +81,8 @@ interface LendingSuccessResponse {
 		supply?: Record<string, number>;
 		borrow?: Record<string, number>;
 
-		deloop?: Record<string, number>;
-		loop?: Record<string, number>;
+		deloop?: LendingLeverageInstruction;
+		loop?: LendingLeverageInstruction;
 	};
 }
 ⋮----
@@ -93,10 +93,14 @@ interface LendingErrorResponse {
 ⋮----
 type LendingApiResponse = LendingSuccessResponse | LendingErrorResponse;
 ⋮----
-// Описываем возвращаемый тип функции согласно вашему требованию
+export interface LendingLeverageInstruction {
+	borrow?: Record<string, number>;
+	supply?: Record<string, number>;
+}
+⋮----
 export interface LendingLeverageResult {
-	deloop?: Record<string, number>;
-	loop?: Record<string, number>;
+	deloop?: LendingLeverageInstruction;
+	loop?: LendingLeverageInstruction;
 }
 ⋮----
 /**
@@ -278,7 +282,11 @@ amountHuman: number               // Сколько токенов хотим в
 
 ## File: classes/Position.ts
 ```typescript
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {
+    fetchLendingInstruction,
+    type LendingLeverageInstruction,
+    type LendingLeverageResult
+} from "../utils/invest_legal/recommend.js";
 import {BASE_CHAIN, type ChainType, getEnv, LENDING} from "../config.js";
 import {ethers} from "ethers";
 ⋮----
@@ -306,13 +314,13 @@ async getRecommend(): Promise<LendingLeverageResult>
      * @param amount количество токена для подлупки
      * @param loop Массив Токен-количество
      */
-async loop(amount: number, loop: Record<string, number>): Promise<void>
+async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void>
 ⋮----
 /**
      * @param amount количество токена для разлупки
      * @param deloop Массив Токен-количество
      */
-async deLoop(amount: number, deloop: Record<string, number>): Promise<void>
+async deLoop(amount: number, instruction: LendingLeverageInstruction): Promise<void>
 ⋮----
 protected createReportParams(assets: PositionAssets): URLSearchParams
 ⋮----
@@ -368,7 +376,11 @@ import {
     WATCH_ADDRESS
 } from "../config.js";
 import {Position} from "./Position.js";
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {
+    type LendingLeverageInstruction,
+    fetchLendingInstruction,
+    type LendingLeverageResult
+} from "../utils/invest_legal/recommend.js";
 import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
 import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
 import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
@@ -385,9 +397,9 @@ async getPosition(): Promise<boolean>
 ⋮----
 async reportPosition(): Promise<boolean>
 ⋮----
-async loop(amount: number): Promise<void>
+async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void>
 ⋮----
-async deLoop(amount: number): Promise<void>
+async deLoop(amount: number, instruction: LendingLeverageInstruction): Promise<void>
 ⋮----
 private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
 ```
@@ -442,79 +454,6 @@ gasPrice: currentGasPrice // dRPC больше не будет делать си
 // Вызываем ваш метод разбора ошибок (он напечатает, что квитанции нет)
 ⋮----
 return false; // Бот продолжает жить и выполнять главный цикл
-```
-
-## File: classes/HLPosition.ts
-```typescript
-import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
-import {ethers} from "ethers";
-import {Position} from "./Position.js";
-import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
-import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
-import {withRetry} from "../utils/utils.js";
-⋮----
-type HyperliquidPositionData = {
-    coin: string;
-    szi: string;
-    leverage: {
-        type: string;
-        value: number;
-    };
-    entryPx: string;
-    positionValue: string;
-    unrealizedPnl: string;
-    liquidationPx: string | null;
-    marginUsed: string;
-};
-⋮----
-type ClearinghouseState = {
-    marginSummary: { accountValue: string };
-    crossMaintenanceMarginUsed: string;
-    assetPositions: { position: HyperliquidPositionData }[];
-};
-⋮----
-type SpotTokenBalance = {
-    coin: string;
-    total: string;
-};
-⋮----
-type SpotClearinghouseState = {
-    balances: SpotTokenBalance[];
-};
-⋮----
-function isRecord(value: unknown): value is Record<string, unknown>
-⋮----
-function isNumericString(value: unknown): value is string
-⋮----
-function isHyperliquidPosition(value: unknown): value is HyperliquidPositionData
-⋮----
-function isClearinghouseState(value: unknown): value is ClearinghouseState
-⋮----
-function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
-⋮----
-async function postToHyperliquidInfo(type: string): Promise<unknown>
-⋮----
-export class HLPosition extends Position {
-⋮----
-/**
-     * @param amount количество токена для разлупки
-     * @param loop Массив Токен-количество
-     */
-async loop(amount: number, loop: Record<string, number>): Promise<void>
-⋮----
-/**
-     * @param amount количество токена для разлупки
-     * @param deloop Массив Токен-количество
-     */
-async deLoop(amount: number, deloop: Record<string, number>): Promise<void>
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-// SUM USDC position for LONG and SHORT separately
-⋮----
-// Correcting borrow position
-⋮----
-async reportPosition(): Promise<boolean>
 ```
 
 ## File: utils/utils.ts
@@ -692,6 +631,80 @@ export async function initializeMTokensCache(
 // Получаем все рынки из блокчейна один раз
 ⋮----
 // Из 'mUSDC' получаем 'USDC', из 'mcbBTC' получаем 'cbBTC'
+```
+
+## File: classes/HLPosition.ts
+```typescript
+import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
+import {ethers} from "ethers";
+import {Position} from "./Position.js";
+import type {LendingLeverageInstruction} from "../utils/invest_legal/recommend.js";
+import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
+import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
+import {withRetry} from "../utils/utils.js";
+⋮----
+type HyperliquidPositionData = {
+    coin: string;
+    szi: string;
+    leverage: {
+        type: string;
+        value: number;
+    };
+    entryPx: string;
+    positionValue: string;
+    unrealizedPnl: string;
+    liquidationPx: string | null;
+    marginUsed: string;
+};
+⋮----
+type ClearinghouseState = {
+    marginSummary: { accountValue: string };
+    crossMaintenanceMarginUsed: string;
+    assetPositions: { position: HyperliquidPositionData }[];
+};
+⋮----
+type SpotTokenBalance = {
+    coin: string;
+    total: string;
+};
+⋮----
+type SpotClearinghouseState = {
+    balances: SpotTokenBalance[];
+};
+⋮----
+function isRecord(value: unknown): value is Record<string, unknown>
+⋮----
+function isNumericString(value: unknown): value is string
+⋮----
+function isHyperliquidPosition(value: unknown): value is HyperliquidPositionData
+⋮----
+function isClearinghouseState(value: unknown): value is ClearinghouseState
+⋮----
+function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
+⋮----
+async function postToHyperliquidInfo(type: string): Promise<unknown>
+⋮----
+export class HLPosition extends Position {
+⋮----
+/**
+     * @param amount количество токена для разлупки
+     * @param loop Массив Токен-количество
+     */
+async loop(amount: number, loop: LendingLeverageInstruction): Promise<void>
+⋮----
+/**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+async deLoop(amount: number, deloop: LendingLeverageInstruction): Promise<void>
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+// SUM USDC position for LONG and SHORT separately
+⋮----
+// Correcting borrow position
+⋮----
+async reportPosition(): Promise<boolean>
 ```
 
 ## File: utils/uniswap/swap.ts

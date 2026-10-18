@@ -67,126 +67,6 @@ moonwellUtils.ts
 
 # Files
 
-## File: classes/HLPosition.ts
-```typescript
-import {WATCH_ADDRESS} from "../config.js";
-import {Position} from "./Position.js";
-import {transformHyperliquidToLandingModel, type LandingModelData} from "../utils/hyperliquid/transformer.js";
-⋮----
-type HyperliquidPositionData = {
-    coin: string;
-    szi: string;
-    leverage: {
-        type: string;
-        value: number;
-    };
-    entryPx: string;
-    positionValue: string;
-    unrealizedPnl: string;
-    liquidationPx: string | null;
-    marginUsed: string;
-};
-⋮----
-type ClearinghouseState = {
-    marginSummary: {accountValue: string};
-    crossMaintenanceMarginUsed: string;
-    assetPositions: {position: HyperliquidPositionData}[];
-};
-⋮----
-type SpotTokenBalance = {
-    coin: string;
-    total: string;
-};
-⋮----
-type SpotClearinghouseState = {
-    balances: SpotTokenBalance[];
-};
-⋮----
-function isRecord(value: unknown): value is Record<string, unknown>
-⋮----
-function isNumericString(value: unknown): value is string
-⋮----
-function isHyperliquidPosition(value: unknown): value is HyperliquidPositionData
-⋮----
-function isClearinghouseState(value: unknown): value is ClearinghouseState
-⋮----
-function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
-⋮----
-async function postToHyperliquidInfo(type: string): Promise<unknown>
-⋮----
-export class HLPosition extends Position {
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-async reportPosition(): Promise<boolean>
-```
-
-## File: classes/MoonwellPosition.ts
-```typescript
-import {ethers, formatUnits} from "ethers";
-import {CHAIN, CONFIG, currentNetwork, getEnv, LENDING, OPT_CHAIN, POOLS, provider, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
-import {Position} from "./Position.js";
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
-import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
-import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
-import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
-import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
-import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
-import {wallet} from "../utils/loadWallet.js";
-⋮----
-function getHumanBalance(balances: WalletBalances, token: SupportedToken): number
-⋮----
-export class MoonwellPosition extends Position {
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-async reportPosition(): Promise<boolean>
-⋮----
-async getRecommend(): Promise<LendingLeverageResult>
-⋮----
-async loop(borrowAmount: number): Promise<void>
-⋮----
-async deLoop(supplyAmount: number): Promise<void>
-⋮----
-private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
-```
-
-## File: classes/MorphoPosition.ts
-```typescript
-import {ethers, formatUnits} from "ethers";
-import {BASE_CHAIN, CONFIG, getEnv, LENDING, providers, WATCH_ADDRESS} from "../config.js";
-import {Position} from "./Position.js";
-import {withRetry} from "../utils/utils.js";
-⋮----
-export class MorphoPosition extends Position {
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-async reportPosition(): Promise<boolean>
-```
-
-## File: classes/Position.ts
-```typescript
-import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {getEnv} from "../config.js";
-⋮----
-export abstract class Position {
-⋮----
-abstract getPosition(): Promise<boolean>;
-abstract reportPosition(): Promise<boolean>;
-⋮----
-async getRecommend(): Promise<LendingLeverageResult>
-⋮----
-async loop(_amount: number): Promise<void>
-⋮----
-async deLoop(_amount: number): Promise<void>
-⋮----
-protected createReportParams(lendingId: number): URLSearchParams
-⋮----
-protected createReportUrl(params: URLSearchParams): URL
-```
-
 ## File: utils/invest_legal/recommend.ts
 ```typescript
 import axios from "axios";
@@ -248,6 +128,51 @@ const password = ""; // Придумайте пароль
 // encrypt() генерирует JSON-строку по стандарту Ethereum
 ⋮----
 //    fs.writeFileSync('wallet.json', encryptedJson);
+```
+
+## File: classes/MoonwellPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {CHAIN, CONFIG, currentNetwork, getEnv, LENDING, OPT_CHAIN, POOLS, provider, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
+import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
+import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
+import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
+import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
+import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
+import {wallet} from "../utils/loadWallet.js";
+⋮----
+function getHumanBalance(balances: WalletBalances, token: SupportedToken): number
+⋮----
+export class MoonwellPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+⋮----
+async getRecommend(): Promise<LendingLeverageResult>
+⋮----
+async loop(borrowAmount: number): Promise<void>
+⋮----
+async deLoop(supplyAmount: number): Promise<void>
+⋮----
+private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
+```
+
+## File: classes/MorphoPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {BASE_CHAIN, CONFIG, getEnv, LENDING, providers, WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {withRetry} from "../utils/utils.js";
+⋮----
+export class MorphoPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
 ```
 
 ## File: utils/hyperliquid/transformer.ts
@@ -394,6 +319,32 @@ async function loadWallet(provider: ethers.Provider)
 export async function initializeWallet(provider: ethers.Provider): Promise<void>
 ```
 
+## File: classes/Position.ts
+```typescript
+import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {getEnv} from "../config.js";
+⋮----
+export type PositionAssets = {
+    supply: Record<string, number>;
+    borrow: Record<string, number>;
+};
+⋮----
+export abstract class Position {
+⋮----
+abstract getPosition(): Promise<boolean>;
+abstract reportPosition(): Promise<boolean>;
+⋮----
+async getRecommend(): Promise<LendingLeverageResult>
+⋮----
+async loop(_amount: number): Promise<void>
+⋮----
+async deLoop(_amount: number): Promise<void>
+⋮----
+protected createReportParams(assets: PositionAssets): URLSearchParams
+⋮----
+protected createReportUrl(params: URLSearchParams): URL
+```
+
 ## File: utils/moonwell/supplyMoonwellAsset.ts
 ```typescript
 import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, OPT_CHAIN, type SupportedToken} from "../../config.js";
@@ -423,6 +374,63 @@ amountHuman: number               // Сколько токенов вносим 
 // todo отдельные методы для ETH и других
 ⋮----
 const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
+```
+
+## File: classes/HLPosition.ts
+```typescript
+import {WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+⋮----
+type HyperliquidPositionData = {
+    coin: string;
+    szi: string;
+    leverage: {
+        type: string;
+        value: number;
+    };
+    entryPx: string;
+    positionValue: string;
+    unrealizedPnl: string;
+    liquidationPx: string | null;
+    marginUsed: string;
+};
+⋮----
+type ClearinghouseState = {
+    marginSummary: { accountValue: string };
+    crossMaintenanceMarginUsed: string;
+    assetPositions: { position: HyperliquidPositionData }[];
+};
+⋮----
+type SpotTokenBalance = {
+    coin: string;
+    total: string;
+};
+⋮----
+type SpotClearinghouseState = {
+    balances: SpotTokenBalance[];
+};
+⋮----
+function isRecord(value: unknown): value is Record<string, unknown>
+⋮----
+function isNumericString(value: unknown): value is string
+⋮----
+function isHyperliquidPosition(value: unknown): value is HyperliquidPositionData
+⋮----
+function isClearinghouseState(value: unknown): value is ClearinghouseState
+⋮----
+function isSpotClearinghouseState(value: unknown): value is SpotClearinghouseState
+⋮----
+async function postToHyperliquidInfo(type: string): Promise<unknown>
+⋮----
+export class HLPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+// SUM USDC position for LONG and SHORT separately
+⋮----
+// Correcting borrow position
+⋮----
+async reportPosition(): Promise<boolean>
 ```
 
 ## File: utils/moonwell/withdrawMoonwellAsset.ts

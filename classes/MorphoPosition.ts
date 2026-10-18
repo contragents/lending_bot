@@ -11,14 +11,12 @@ export class MorphoPosition extends Position {
     protected readonly lendingId = 5;
     static readonly SUPPORTED_CHAINS: ChainType[] = [BASE_CHAIN];
 
-    private hasPosition = false;
-    private positionLoaded = false;
+    protected hasPosition = false;
+    protected positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
-        this.assets = {supply: {}, borrow: {}};
-        this.hasPosition = false;
-        this.positionLoaded = false;
-        console.log(`--- Morpho Blue Assets & Liabilities (${this.chain}) ---`);
+        super.getPosition();
+
         const morpho = new ethers.Contract(MORPHO_BLUE_ADDRESS, CONFIG.ABI.MORPHO, this.provider);
 
         try {

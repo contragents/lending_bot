@@ -1,5 +1,5 @@
-import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {BASE_CHAIN, type ChainType, getEnv} from "../config.js";
+import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {BASE_CHAIN, type ChainType, getEnv, LENDING} from "../config.js";
 import {ethers} from "ethers";
 
 export const LENDING_BOT_URL = "https://invest.legal/bot/lendingCorrection";
@@ -17,6 +17,8 @@ export abstract class Position {
         supply: {},
         borrow: {},
     };
+    protected positionLoaded: boolean = false;
+    protected hasPosition: boolean = false;
 
     constructor(
         protected readonly chain: ChainType,
@@ -31,19 +33,35 @@ export abstract class Position {
         }
     }
 
-    abstract getPosition(): Promise<boolean>;
+    public getPosition(): Promise<boolean> {
+        this.assets = {supply: {}, borrow: {}};
+        this.hasPosition = false;
+        this.positionLoaded = false;
+        console.log(`--- ${this.constructor.name} Assets & Liabilities (${this.chain}) ---`);
+
+        return Promise.resolve(true);
+    }
+
     abstract reportPosition(): Promise<boolean>;
 
     async getRecommend(): Promise<LendingLeverageResult> {
-        throw new Error(`${this.constructor.name} does not support recommendations`);
+        return fetchLendingInstruction(this.lendingId);
     }
 
-    async loop(_amount: number): Promise<void> {
-        throw new Error(`${this.constructor.name} does not support looping`);
+    /**
+     * @param amount количество токена для подлупки
+     * @param loop Массив Токен-количество
+     */
+    async loop(amount: number, loop: Record<string, number>): Promise<void> {
+        console.log(`${this.constructor.name} does not support looping`);
     }
 
-    async deLoop(_amount: number): Promise<void> {
-        throw new Error(`${this.constructor.name} does not support de-looping`);
+    /**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+    async deLoop(amount: number, deloop: Record<string, number>): Promise<void> {
+        console.log(`${this.constructor.name} does not support de-looping`);
     }
 
     protected createReportParams(assets: PositionAssets): URLSearchParams {

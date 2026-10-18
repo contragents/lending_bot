@@ -1,4 +1,4 @@
-import {HL_CHAIN, type ChainType, WATCH_ADDRESS, BASE_CHAIN} from "../config.js";
+import {HL_CHAIN, type ChainType, WATCH_ADDRESS, BASE_CHAIN, getEnv} from "../config.js";
 import {ethers} from "ethers";
 import {Position} from "./Position.js";
 
@@ -95,13 +95,39 @@ export class HLPosition extends Position {
     protected readonly lendingId = 6;
     static readonly SUPPORTED_CHAINS: ChainType[] = [HL_CHAIN];
 
-    private positionLoaded = false;
+    protected positionLoaded = false;
+
+    /**
+     * @param amount количество токена для разлупки
+     * @param loop Массив Токен-количество
+     */
+    async loop(amount: number, loop: Record<string, number>): Promise<void> {
+        console.log('HL loop', loop);
+        const privateKey = getEnv('HYPER_KEY');
+        const address=getEnv('HYPER_ADDRESS');
+        /**
+         * todo используя реквизиты доступа к торговому API Hyperliquid (адрес кошелька, секретный ключ)
+         * и данные для увеличения шорт-позиций из переменной loop (Record тикер-объем)
+         * необходимо выполнить список указанных операций.
+         *
+         * ВАЖНО! не обрабатывать рекомендацию для токена USDC - такого перп-актива в HL не существует, это коректирующая запись
+         **/
+
+
+    }
+
+    /**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+    async deLoop(amount: number, deloop: Record<string, number>): Promise<void> {
+        console.log('HL deloop', deloop);
+        const privateKey = getEnv('HYPER_KEY');
+        const address=getEnv('HYPER_ADDRESS');
+    }
 
     async getPosition(): Promise<boolean> {
-        this.assets = {supply: {}, borrow: {}};
-        this.positionLoaded = false;
-        console.log(`--- Hyperliquid Account (${this.chain}) ---`);
-        console.log(`User: ${WATCH_ADDRESS}`);
+        super.getPosition();
 
         try {
             const [marginRes, spotRes] = await Promise.all([

@@ -130,58 +130,6 @@ const password = ""; // Придумайте пароль
 //    fs.writeFileSync('wallet.json', encryptedJson);
 ```
 
-## File: classes/MoonwellPosition.ts
-```typescript
-import {ethers, formatUnits} from "ethers";
-import {CONFIG, getEnv, getMoonwellMarkets, LENDING, OPT_CHAIN, POOLS, type ChainType, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
-import {Position} from "./Position.js";
-import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
-import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
-import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
-import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
-import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
-import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
-import {wallet} from "../utils/loadWallet.js";
-⋮----
-function getHumanBalance(balances: WalletBalances, token: SupportedToken): number
-⋮----
-export class MoonwellPosition extends Position {
-⋮----
-constructor(
-        private readonly chain: ChainType,
-        private readonly provider: ethers.JsonRpcProvider
-)
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-async reportPosition(): Promise<boolean>
-⋮----
-async getRecommend(): Promise<LendingLeverageResult>
-⋮----
-async loop(borrowAmount: number): Promise<void>
-⋮----
-async deLoop(supplyAmount: number): Promise<void>
-⋮----
-private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
-```
-
-## File: classes/MorphoPosition.ts
-```typescript
-import {ethers, formatUnits} from "ethers";
-import {BASE_CHAIN, CONFIG, getEnv, LENDING, WATCH_ADDRESS} from "../config.js";
-import {Position} from "./Position.js";
-import {withRetry} from "../utils/utils.js";
-⋮----
-export class MorphoPosition extends Position {
-⋮----
-constructor(private readonly provider: ethers.JsonRpcProvider)
-⋮----
-async getPosition(): Promise<boolean>
-⋮----
-async reportPosition(): Promise<boolean>
-```
-
 ## File: utils/hyperliquid/transformer.ts
 ```typescript
 // Определяем обновленные структуры под формат ваших моделей лендинга
@@ -232,12 +180,40 @@ price: calculatePrice(p.positionValue, p.szi) // 👈 Расчет цены шо
 price: 1 // 👈 Цена стейблкоина всегда равна 1
 ```
 
+## File: utils/moonwell/getMoonwellData.ts
+```typescript
+import {CONFIG, type ChainType, WATCH_ADDRESS} from "../../config.js";
+import {ethers} from "ethers";
+import {withRetry} from "../utils.js";
+⋮----
+export async function getMoonwellData(chain: ChainType, provider: ethers.JsonRpcProvider)
+⋮----
+// Возвращает: (error, liquidity, shortfall)
+// Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
+```
+
+## File: utils/loadWallet.ts
+```typescript
+import {ethers} from "ethers";
+import {BASE_CHAIN, getEnv, HL_CHAIN, OPT_CHAIN, type ChainType} from "../config.js";
+import readline from "readline/promises";
+import {HDNodeWallet, Wallet} from "ethers";
+⋮----
+export type Wallets = Record<ChainType, Wallet | HDNodeWallet | undefined>;
+⋮----
+async function loadWallet(providers: ReadonlyMap<ChainType, ethers.Provider>): Promise<Wallets>
+⋮----
+// Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
+⋮----
+export async function initializeWallet(providers: ReadonlyMap<ChainType, ethers.Provider>): Promise<void>
+```
+
 ## File: utils/moonwell/borrowAsset.ts
 ```typescript
 import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 ⋮----
 export async function borrowMoonwellAsset(
 	chain: ChainType,
@@ -259,24 +235,12 @@ export async function borrowMoonwellAsset(
 // Проверяем, есть ли этот хэш в Topic 0 хотя бы одного лога от нашего mToken контракта
 ```
 
-## File: utils/moonwell/getMoonwellData.ts
-```typescript
-import {CONFIG, type ChainType, WATCH_ADDRESS} from "../../config.js";
-import {ethers} from "ethers";
-import {withRetry} from "../utils.js";
-⋮----
-export async function getMoonwellData(chain: ChainType, provider: ethers.JsonRpcProvider)
-⋮----
-// Возвращает: (error, liquidity, shortfall)
-// Liquidity > 0 означает, что заем безопасен. Shortfall > 0 означает риск ликвидации.
-```
-
 ## File: utils/moonwell/repayAsset.ts
 ```typescript
 import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers, formatUnits} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 ⋮----
 export async function repayMoonwellAsset(
 	chain: ChainType,
@@ -312,26 +276,11 @@ amountHuman: number               // Сколько токенов хотим в
 // Верификация по нативному хэшу события RepayBorrow
 ```
 
-## File: utils/loadWallet.ts
-```typescript
-import {ethers} from "ethers";
-import {getEnv} from "../config.js";
-import readline from "readline/promises";
-import {HDNodeWallet, Wallet} from "ethers";
-⋮----
-async function loadWallet(provider: ethers.Provider)
-⋮----
-// Запрашиваем пароль в консоли (безопаснее, чем хранить в .env)
-⋮----
-// Восстанавливаем кошелек
-⋮----
-export async function initializeWallet(provider: ethers.Provider): Promise<void>
-```
-
 ## File: classes/Position.ts
 ```typescript
-import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {getEnv} from "../config.js";
+import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {BASE_CHAIN, type ChainType, getEnv, LENDING} from "../config.js";
+import {ethers} from "ethers";
 ⋮----
 export type PositionAssets = {
     supply: Record<string, number>;
@@ -340,14 +289,30 @@ export type PositionAssets = {
 ⋮----
 export abstract class Position {
 ⋮----
-abstract getPosition(): Promise<boolean>;
+constructor(
+        protected readonly chain: ChainType,
+        protected readonly provider: ethers.JsonRpcProvider
+)
+⋮----
+// Достаем статическое свойство из текущего класса-наследника
+⋮----
+public getPosition(): Promise<boolean>
+⋮----
 abstract reportPosition(): Promise<boolean>;
 ⋮----
 async getRecommend(): Promise<LendingLeverageResult>
 ⋮----
-async loop(_amount: number): Promise<void>
+/**
+     * @param amount количество токена для подлупки
+     * @param loop Массив Токен-количество
+     */
+async loop(amount: number, loop: Record<string, number>): Promise<void>
 ⋮----
-async deLoop(_amount: number): Promise<void>
+/**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+async deLoop(amount: number, deloop: Record<string, number>): Promise<void>
 ⋮----
 protected createReportParams(assets: PositionAssets): URLSearchParams
 ⋮----
@@ -359,7 +324,7 @@ protected createReportUrl(params: URLSearchParams): URL
 import {CONFIG, getMoonwellMarkets, MOONWELL_MARKETS, OPT_CHAIN, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 ⋮----
 export async function supplyMoonwellAsset(
 	chain: ChainType,
@@ -386,10 +351,107 @@ amountHuman: number               // Сколько токенов вносим 
 const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
 ```
 
+## File: classes/MoonwellPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {
+    BASE_CHAIN,
+    CONFIG,
+    getEnv,
+    getMoonwellMarkets,
+    LENDING,
+    OPT_CHAIN,
+    POOLS,
+    type ChainType,
+    type SupportedToken,
+    type WalletBalances,
+    WATCH_ADDRESS
+} from "../config.js";
+import {Position} from "./Position.js";
+import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
+import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
+import {repayMoonwellAsset} from "../utils/moonwell/repayAsset.js";
+import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
+import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
+import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
+import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
+import {wallets} from "../utils/loadWallet.js";
+⋮----
+function getHumanBalance(balances: WalletBalances, token: SupportedToken): number
+⋮----
+export class MoonwellPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+⋮----
+async loop(amount: number): Promise<void>
+⋮----
+async deLoop(amount: number): Promise<void>
+⋮----
+private async calculateMoonwellAPY(mToken: ethers.Contract): Promise<[string, string]>
+```
+
+## File: classes/MorphoPosition.ts
+```typescript
+import {ethers, formatUnits} from "ethers";
+import {BASE_CHAIN, CONFIG, getEnv, LENDING, type ChainType, WATCH_ADDRESS} from "../config.js";
+import {Position} from "./Position.js";
+import {withRetry} from "../utils/utils.js";
+⋮----
+export class MorphoPosition extends Position {
+⋮----
+async getPosition(): Promise<boolean>
+⋮----
+async reportPosition(): Promise<boolean>
+```
+
+## File: utils/moonwell/withdrawMoonwellAsset.ts
+```typescript
+import { ethers, formatUnits } from "ethers";
+import { CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken } from "../../config.js";
+import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
+import {wallets} from "../loadWallet.js";
+⋮----
+export async function withdrawMoonwellAsset(
+	chain: ChainType,
+	provider: ethers.JsonRpcProvider,
+	underlyingSymbol: SupportedToken, // Что выводим ('USDC', 'OP', 'ETH', 'WETH')
+	amountHuman: number               // Сколько токенов забрать на кошелек
+)
+⋮----
+underlyingSymbol: SupportedToken, // Что выводим ('USDC', 'OP', 'ETH', 'WETH')
+amountHuman: number               // Сколько токенов забрать на кошелек
+⋮----
+// Для ETH и WETH рынок один и тот же — WETH контракт ядра
+⋮----
+// Сигнатура external без возвращаемого значения (returns) для стабильной работы ethers.js v6
+⋮----
+// 1. Запрашиваем текущую цену газа сети, чтобы полностью отключить симуляцию estimateGas
+⋮----
+const currentGasPrice = feeData.gasPrice ?? BigInt(1000000); // 0.001 Gwei по умолчанию
+⋮----
+// 2. Отправляем транзакцию, принудительно передавая ВСЕ параметры газа
+⋮----
+gasPrice: currentGasPrice // dRPC больше не будет делать симуляцию и выдавать ошибку 400!
+⋮----
+// ... ваш код проверки логов события Redeem ...
+⋮----
+// 3. БЕЗОПАСНЫЙ ПЕРЕХВАТ: Бот больше не упадет, а аккуратно зафиксирует сбой в вашей статистике
+⋮----
+// Вызываем ваш метод разбора ошибок (он напечатает, что квитанции нет)
+⋮----
+return false; // Бот продолжает жить и выполнять главный цикл
+```
+
 ## File: classes/HLPosition.ts
 ```typescript
-import {WATCH_ADDRESS} from "../config.js";
+import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
+import {ethers} from "ethers";
 import {Position} from "./Position.js";
+import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
+import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
+import {withRetry} from "../utils/utils.js";
 ⋮----
 type HyperliquidPositionData = {
     coin: string;
@@ -434,6 +496,18 @@ async function postToHyperliquidInfo(type: string): Promise<unknown>
 ⋮----
 export class HLPosition extends Position {
 ⋮----
+/**
+     * @param amount количество токена для разлупки
+     * @param loop Массив Токен-количество
+     */
+async loop(amount: number, loop: Record<string, number>): Promise<void>
+⋮----
+/**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+async deLoop(amount: number, deloop: Record<string, number>): Promise<void>
+⋮----
 async getPosition(): Promise<boolean>
 ⋮----
 // SUM USDC position for LONG and SHORT separately
@@ -441,126 +515,6 @@ async getPosition(): Promise<boolean>
 // Correcting borrow position
 ⋮----
 async reportPosition(): Promise<boolean>
-```
-
-## File: utils/moonwell/withdrawMoonwellAsset.ts
-```typescript
-import { ethers, formatUnits } from "ethers";
-import { CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken } from "../../config.js";
-import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
-⋮----
-export async function withdrawMoonwellAsset(
-	chain: ChainType,
-	provider: ethers.JsonRpcProvider,
-	underlyingSymbol: SupportedToken, // Что выводим ('USDC', 'OP', 'ETH', 'WETH')
-	amountHuman: number               // Сколько токенов забрать на кошелек
-)
-⋮----
-underlyingSymbol: SupportedToken, // Что выводим ('USDC', 'OP', 'ETH', 'WETH')
-amountHuman: number               // Сколько токенов забрать на кошелек
-⋮----
-// Для ETH и WETH рынок один и тот же — WETH контракт ядра
-⋮----
-// Сигнатура external без возвращаемого значения (returns) для стабильной работы ethers.js v6
-⋮----
-// 1. Запрашиваем текущую цену газа сети, чтобы полностью отключить симуляцию estimateGas
-⋮----
-const currentGasPrice = feeData.gasPrice ?? BigInt(1000000); // 0.001 Gwei по умолчанию
-⋮----
-// 2. Отправляем транзакцию, принудительно передавая ВСЕ параметры газа
-⋮----
-gasPrice: currentGasPrice // dRPC больше не будет делать симуляцию и выдавать ошибку 400!
-⋮----
-// ... ваш код проверки логов события Redeem ...
-⋮----
-// 3. БЕЗОПАСНЫЙ ПЕРЕХВАТ: Бот больше не упадет, а аккуратно зафиксирует сбой в вашей статистике
-⋮----
-// Вызываем ваш метод разбора ошибок (он напечатает, что квитанции нет)
-⋮----
-return false; // Бот продолжает жить и выполнять главный цикл
-```
-
-## File: utils/uniswap/swap.ts
-```typescript
-import { CONFIG, OPT_CHAIN, type ChainType, type SupportedToken } from "../../config.js";
-⋮----
-import { ethers } from "ethers";
-import { wallet } from "../loadWallet.js";
-⋮----
-/**
- * Меняем нативный ETH на токен (например, OP)
- *
- * @param underlyingSymbol Токен, который хотим получить
- * @param amountHumanEth Количество ETH для обмена
- * @param quote {number} стоимость 1 ETH в целевых токенах
- */
-export async function swapEthToOp(
-	chain: ChainType,
-	underlyingSymbol: SupportedToken, // OP
-	amountHumanEth: number,
-	quote: number
-): Promise<boolean>
-⋮----
-underlyingSymbol: SupportedToken, // OP
-⋮----
-async function main()
-⋮----
-// Переводим человеческое количество ETH в Wei
-⋮----
-// Минимальное количество токенов на выход (защита от проскальзывания 1%)
-⋮----
-const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
-⋮----
-// Шаг 1: Кодируем путь обмена WETH -> Пул 0.3% -> Целевой токен
-// Роутер автоматически заберет нативный ETH и обернет в WETH
-⋮----
-// Шаг 2: Подготовка параметров для exactInput
-⋮----
-recipient: signer.address, // Токены сразу идут на ваш кошелек
-⋮----
-// Шаг 3: Отправка транзакции обмена
-// Approve не нужен, так как мы отправляем нативный ETH прямо в транзакции { value: amountIn }
-⋮----
-value: amountIn, // Передаем нативный эфир вместе с вызовом
-⋮----
-/**
- * Меняем 'underlyingSymbol' на нативный ETH
- *
- * @param underlyingSymbol Токен для обмена
- * @param amountHuman Количество токенов
- * @param quote {number} стоимость 'underlyingSymbol' в Эфирах
- */
-export async function swapToEth(
-	chain: ChainType,
-	underlyingSymbol: SupportedToken,
-	amountHuman: number,
-	quote: number
-): Promise<boolean>
-⋮----
-const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.99).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
-const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
-⋮----
-// Шаг 1: Одобряем роутеру трату токенов OP
-⋮----
-// Шаг 2: Кодируем путь обмена OP -> Пул 0.3% -> WETH
-// 3000 bps в Uniswap соответствует пулу с комиссией 0.3%
-⋮----
-// Шаг 3: Кодируем внутренние вызовы для Multicall
-⋮----
-// Инструкция А: Своп OP на WETH.
-// ВНИМАНИЕ: Получателем (recipient) ставим адрес самого Роутера (адрес 2), чтобы он мог тут же развернуть WETH
-⋮----
-recipient: SWAP_ROUTER_ADDRESS, // WETH временно идет на контракт роутера
-⋮----
-// Инструкция Б: Роутер забирает полученный WETH, разворачивает в ETH и отправляет на ваш кошелек
-⋮----
-amountOutMin,   // Минимальное количество на выход
-signer.address  // Конечный получатель нативного ETH (ваш кошелек)
-⋮----
-// Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию
-⋮----
-gasLimit: 350000 // Лимит с запасом, OPT спишет копейки по факту
 ```
 
 ## File: utils/utils.ts
@@ -740,6 +694,88 @@ export async function initializeMTokensCache(
 // Из 'mUSDC' получаем 'USDC', из 'mcbBTC' получаем 'cbBTC'
 ```
 
+## File: utils/uniswap/swap.ts
+```typescript
+import { CONFIG, OPT_CHAIN, type ChainType, type SupportedToken } from "../../config.js";
+⋮----
+import { ethers } from "ethers";
+import { wallets } from "../loadWallet.js";
+⋮----
+/**
+ * Меняем нативный ETH на токен (например, OP)
+ *
+ * @param underlyingSymbol Токен, который хотим получить
+ * @param amountHumanEth Количество ETH для обмена
+ * @param quote {number} стоимость 1 ETH в целевых токенах
+ */
+export async function swapEthToOp(
+	chain: ChainType,
+	underlyingSymbol: SupportedToken, // OP
+	amountHumanEth: number,
+	quote: number
+): Promise<boolean>
+⋮----
+underlyingSymbol: SupportedToken, // OP
+⋮----
+async function main()
+⋮----
+// Переводим человеческое количество ETH в Wei
+⋮----
+// Минимальное количество токенов на выход (защита от проскальзывания 1%)
+⋮----
+const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
+⋮----
+// Шаг 1: Кодируем путь обмена WETH -> Пул 0.3% -> Целевой токен
+// Роутер автоматически заберет нативный ETH и обернет в WETH
+⋮----
+// Шаг 2: Подготовка параметров для exactInput
+⋮----
+recipient: activeSigner.address, // Токены сразу идут на ваш кошелек
+⋮----
+// Шаг 3: Отправка транзакции обмена
+// Approve не нужен, так как мы отправляем нативный ETH прямо в транзакции { value: amountIn }
+⋮----
+value: amountIn, // Передаем нативный эфир вместе с вызовом
+⋮----
+/**
+ * Меняем 'underlyingSymbol' на нативный ETH
+ *
+ * @param underlyingSymbol Токен для обмена
+ * @param amountHuman Количество токенов
+ * @param quote {number} стоимость 'underlyingSymbol' в Эфирах
+ */
+export async function swapToEth(
+	chain: ChainType,
+	underlyingSymbol: SupportedToken,
+	amountHuman: number,
+	quote: number
+): Promise<boolean>
+⋮----
+const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.99).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
+const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
+⋮----
+// Шаг 1: Одобряем роутеру трату токенов OP
+⋮----
+// Шаг 2: Кодируем путь обмена OP -> Пул 0.3% -> WETH
+// 3000 bps в Uniswap соответствует пулу с комиссией 0.3%
+⋮----
+// Шаг 3: Кодируем внутренние вызовы для Multicall
+⋮----
+// Инструкция А: Своп OP на WETH.
+// ВНИМАНИЕ: Получателем (recipient) ставим адрес самого Роутера (адрес 2), чтобы он мог тут же развернуть WETH
+⋮----
+recipient: SWAP_ROUTER_ADDRESS, // WETH временно идет на контракт роутера
+⋮----
+// Инструкция Б: Роутер забирает полученный WETH, разворачивает в ETH и отправляет на ваш кошелек
+⋮----
+amountOutMin,   // Минимальное количество на выход
+activeSigner.address  // Конечный получатель нативного ETH (ваш кошелек)
+⋮----
+// Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию
+⋮----
+gasLimit: 350000 // Лимит с запасом, OPT спишет копейки по факту
+```
+
 ## File: config.ts
 ```typescript
 import {ethers, getAddress} from 'ethers';
@@ -833,13 +869,14 @@ export interface WalletBalances {
 
 ## File: index.ts
 ```typescript
-import {BASE_CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, type ChainType, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {BASE_CHAIN, type ChainType, CONFIG, HL_CHAIN, OPT_CHAIN, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
-import {initializeWallet, wallet} from "./utils/loadWallet.js";
+import {initializeWallet, wallets} from "./utils/loadWallet.js";
 import {MoonwellPosition} from "./classes/MoonwellPosition.js";
 import {MorphoPosition} from "./classes/MorphoPosition.js";
 import {HLPosition} from "./classes/HLPosition.js";
-import {FetchRequest, ethers} from "ethers";
+import {ethers, FetchRequest} from "ethers";
+import type {Position} from "./classes/Position.js";
 ⋮----
 function getProvider(chain: ChainType): ethers.JsonRpcProvider
 ⋮----
@@ -855,6 +892,10 @@ async function main()
 ⋮----
 let borrowAmount = 0; // подлупка в токенах займа (OP)
 let supplyAmount = 0; // разлупка в токенах займа (OP)
+⋮----
+// Перебираем массив объектов позиций для текущей сети
+⋮----
+// if (chain !== OPT_CHAIN) continue;
 ⋮----
 // Получаем слепок всех балансов на кошельке
 ⋮----

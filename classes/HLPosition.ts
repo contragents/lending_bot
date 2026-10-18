@@ -1,6 +1,9 @@
-import {HL_CHAIN, type ChainType, WATCH_ADDRESS, BASE_CHAIN, getEnv} from "../config.js";
+import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
 import {ethers} from "ethers";
 import {Position} from "./Position.js";
+import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
+import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
+import {withRetry} from "../utils/utils.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 const SUPPORTED_CHAINS: readonly ChainType[] = [HL_CHAIN];
@@ -102,18 +105,92 @@ export class HLPosition extends Position {
      * @param loop Массив Токен-количество
      */
     async loop(amount: number, loop: Record<string, number>): Promise<void> {
-        console.log('HL loop', loop);
-        const privateKey = getEnv('HYPER_KEY');
-        const address=getEnv('HYPER_ADDRESS');
-        /**
-         * todo используя реквизиты доступа к торговому API Hyperliquid (адрес кошелька, секретный ключ)
-         * и данные для увеличения шорт-позиций из переменной loop (Record тикер-объем)
-         * необходимо выполнить список указанных операций.
-         *
-         * ВАЖНО! не обрабатывать рекомендацию для токена USDC - такого перп-актива в HL не существует, это коректирующая запись
-         **/
+        const entries = Object.entries(loop)
+            .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
 
+        if (entries.length === 0) {
+            console.log("HL loop: no perpetual orders to place");
 
+            return;
+        }
+
+        for (const [coin, size] of entries) {
+            if (!coin.trim()) {
+                throw new Error("Hyperliquid loop contains an empty coin symbol");
+            }
+
+            if (!Number.isFinite(size) || size <= 0) {
+                throw new Error(`Invalid Hyperliquid loop size for ${coin}: ${size}`);
+            }
+        }
+
+        const privateKey = getEnv("HYPER_KEY");
+        const address = ethers.getAddress(getEnv("HYPER_ADDRESS"));
+        const wallet = new ethers.Wallet(privateKey);
+        const transport = new HttpTransport();
+        const info = new InfoClient({transport});
+
+        if (wallet.address.toLowerCase() !== address.toLowerCase()) {
+            const agents = await withRetry(() => info.extraAgents({user: address}));
+            const isAuthorizedAgent = agents.some(agent =>
+                agent.address.toLowerCase() === wallet.address.toLowerCase()
+                && (agent.validUntil === null || agent.validUntil > Date.now()));
+            if (!isAuthorizedAgent) {
+                throw new Error(
+                    `HYPER_KEY address ${wallet.address} is neither HYPER_ADDRESS nor its active API agent`
+                );
+            }
+        }
+
+        const [mids, converter] = await Promise.all([
+            withRetry(() => info.allMids()),
+            withRetry(() => SymbolConverter.create({transport})),
+        ]);
+        const orders = entries.map(([coin, size]) => {
+            const assetId = converter.getAssetId(coin);
+            const sizeDecimals = converter.getSzDecimals(coin);
+            const mid = Number(mids[coin]);
+            if (assetId === undefined || sizeDecimals === undefined) {
+                throw new Error(`Unknown Hyperliquid perpetual asset: ${coin}`);
+            }
+            if (!Number.isFinite(mid) || mid <= 0) {
+                throw new Error(`Missing or invalid Hyperliquid mid price for ${coin}`);
+            }
+
+            return {
+                a: assetId,
+                b: false,
+                p: formatPrice(mid * 0.99, sizeDecimals),
+                s: formatSize(size, sizeDecimals),
+                r: false,
+                t: {limit: {tif: "Ioc" as const}},
+                c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
+            };
+        });
+
+        const exchange = new ExchangeClient({transport, wallet});
+        const result = await withRetry(() => exchange.order({orders, grouping: "na"}));
+        const statuses = result.response.data.statuses;
+        if (statuses.length !== orders.length) {
+            throw new Error(`Hyperliquid returned ${statuses.length} order statuses for ${orders.length} orders`);
+        }
+
+        const incompleteOrders: string[] = [];
+        statuses.forEach((status, index) => {
+            const coin = entries[index]![0];
+            if (typeof status !== "object" || status === null || !("filled" in status)) {
+                incompleteOrders.push(`${coin}: ${JSON.stringify(status)}`);
+                return;
+            }
+            console.log(`HL loop: opened short ${status.filled.totalSz} ${coin} at ${status.filled.avgPx} USDC`);
+            const requestedSize = Number(orders[index]!.s);
+            if (Number(status.filled.totalSz) < requestedSize) {
+                incompleteOrders.push(`${coin}: filled ${status.filled.totalSz} of ${orders[index]!.s}`);
+            }
+        });
+        if (incompleteOrders.length > 0) {
+            throw new Error(`Hyperliquid loop orders were not fully filled: ${incompleteOrders.join("; ")}`);
+        }
     }
 
     /**

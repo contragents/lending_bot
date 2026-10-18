@@ -8,7 +8,6 @@ import {supplyMoonwellAsset} from "../utils/moonwell/supplyMoonwellAsset.js";
 import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js";
 import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
 import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
-import {wallet} from "../utils/loadWallet.js";
 
 const SUPPORTED_CHAINS: readonly ChainType[] = [BASE_CHAIN, OPT_CHAIN];
 
@@ -23,17 +22,9 @@ function getHumanBalance(balances: WalletBalances, token: SupportedToken): numbe
 
 export class MoonwellPosition extends Position {
     protected readonly lendingId = 4;
-    private positionLoaded = false;
+    static readonly SUPPORTED_CHAINS: ChainType[] = [BASE_CHAIN, OPT_CHAIN];
 
-    constructor(
-        private readonly chain: ChainType,
-        private readonly provider: ethers.JsonRpcProvider
-    ) {
-        super();
-        if (!SUPPORTED_CHAINS.includes(chain)) {
-            throw new Error(`Moonwell is not supported for chain ${chain}`);
-        }
-    }
+    private positionLoaded = false;
 
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};

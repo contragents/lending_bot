@@ -9,18 +9,10 @@ const SUPPORTED_CHAINS: readonly ChainType[] = [BASE_CHAIN];
 
 export class MorphoPosition extends Position {
     protected readonly lendingId = 5;
+    static readonly SUPPORTED_CHAINS: ChainType[] = [BASE_CHAIN];
+
     private hasPosition = false;
     private positionLoaded = false;
-
-    constructor(
-        private readonly chain: ChainType,
-        private readonly provider: ethers.JsonRpcProvider
-    ) {
-        super();
-        if (!SUPPORTED_CHAINS.includes(chain)) {
-            throw new Error(`Morpho is not supported for chain ${chain}`);
-        }
-    }
 
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};

@@ -1,7 +1,7 @@
 import { CONFIG, OPT_CHAIN, type ChainType, type SupportedToken } from "../../config.js";
 
 import { ethers } from "ethers";
-import { wallet } from "../loadWallet.js";
+import { wallets } from "../loadWallet.js";
 
 /**
  * Меняем нативный ETH на токен (например, OP)
@@ -19,11 +19,12 @@ export async function swapEthToOp(
 	if (chain !== OPT_CHAIN) {
 		throw new Error(`Uniswap swap is not configured for chain ${chain}`);
 	}
-	if (!wallet) {
+	const signer = wallets[chain];
+	if (!signer) {
 		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
 		return false;
 	}
-	const signer = wallet;
+	const activeSigner = signer;
 	const network = CONFIG.NETWORKS[chain];
 	const wethAddress = network.TOKENS.WETH;
 	const outputTokenAddress = network.TOKENS[underlyingSymbol];
@@ -41,7 +42,7 @@ export async function swapEthToOp(
 		const amountOutMin = ethers.parseUnits((amountHumanEth * quote * 0.99).toFixed(18), 18);
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
-		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, signer) as any;
+		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, activeSigner) as any;
 
 		// Шаг 1: Кодируем путь обмена WETH -> Пул 0.3% -> Целевой токен
 		// Роутер автоматически заберет нативный ETH и обернет в WETH
@@ -53,7 +54,7 @@ export async function swapEthToOp(
 		// Шаг 2: Подготовка параметров для exactInput
 		const params = {
 			path: path,
-			recipient: signer.address, // Токены сразу идут на ваш кошелек
+			recipient: activeSigner.address, // Токены сразу идут на ваш кошелек
 			deadline: deadline,
 			amountIn: amountIn,
 			amountOutMinimum: amountOutMin
@@ -98,11 +99,12 @@ export async function swapToEth(
 	if (chain !== OPT_CHAIN) {
 		throw new Error(`Uniswap swap is not configured for chain ${chain}`);
 	}
-	if (!wallet) {
+	const signer = wallets[chain];
+	if (!signer) {
 		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
 		return false;
 	}
-	const signer = wallet;
+	const activeSigner = signer;
 	const network = CONFIG.NETWORKS[chain];
 	const wethAddress = network.TOKENS.WETH;
 	const inputTokenAddress = network.TOKENS[underlyingSymbol];
@@ -118,8 +120,8 @@ export async function swapToEth(
 		const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.99).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
-		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, signer) as any;
-		const opContract = new ethers.Contract(configuredInputTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, signer) as any;
+		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, activeSigner) as any;
+		const opContract = new ethers.Contract(configuredInputTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, activeSigner) as any;
 
 		// Шаг 1: Одобряем роутеру трату токенов OP
 		console.log("1. Отправка Approve...");
@@ -150,7 +152,7 @@ export async function swapToEth(
 		// Инструкция Б: Роутер забирает полученный WETH, разворачивает в ETH и отправляет на ваш кошелек
 		const unwrapWETH9Data = routerContract.interface.encodeFunctionData("unwrapWETH9", [
 			amountOutMin,   // Минимальное количество на выход
-			signer.address  // Конечный получатель нативного ETH (ваш кошелек)
+			activeSigner.address  // Конечный получатель нативного ETH (ваш кошелек)
 		]);
 
 		// Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию

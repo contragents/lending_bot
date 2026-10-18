@@ -1,7 +1,7 @@
 import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 
 export async function borrowMoonwellAsset(
 	chain: ChainType,
@@ -11,7 +11,8 @@ export async function borrowMoonwellAsset(
 	console.log(`--- Moonwell Borrow Initialization (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
-	if (!wallet) {
+	const signer = wallets[chain];
+	if (!signer) {
 		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
 		return false;
 	}
@@ -28,7 +29,7 @@ export async function borrowMoonwellAsset(
 		const decimals = CONFIG.TOKEN_DECIMALS[underlyingSymbol];
 		const borrowAmountWei = ethers.parseUnits(amountHuman.toString(), decimals);
 
-		const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, wallet) as any;
+		const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, signer) as any;
 
 		console.log(`Проверяем наличие свободных средств в пуле Moonwell для ${underlyingSymbol}...`);
 		const poolCash: bigint = await mToken.getCash();

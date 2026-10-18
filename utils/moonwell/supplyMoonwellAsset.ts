@@ -1,7 +1,7 @@
 import {CONFIG, getMoonwellMarkets, MOONWELL_MARKETS, OPT_CHAIN, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 
 export async function supplyMoonwellAsset(
 	chain: ChainType,
@@ -11,7 +11,8 @@ export async function supplyMoonwellAsset(
 	console.log(`\n--- Moonwell Universal Supply: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
-	if (!wallet) {
+	const signer = wallets[chain];
+	if (!signer) {
 		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
 		return false;
 	}
@@ -31,10 +32,10 @@ export async function supplyMoonwellAsset(
 				// todo отдельные методы для ETH и других
 				// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
 				const routerAbi = ["function mint(address recipient) external payable returns (uint256)"];
-				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OPT.M_TOKENS.ETH_ROUTER, routerAbi, wallet);
+				const routerContract = new ethers.Contract(MOONWELL_MARKETS.OPT.M_TOKENS.ETH_ROUTER, routerAbi, signer);
 
 				console.log(`Отправка ETH через официальный нативный роутер Moonwell...`);
-				const tx = await routerContract.mint?.(wallet.address, {
+				const tx = await routerContract.mint?.(signer.address, {
 					value: supplyAmountWei,
 					gasLimit: 450000
 				});
@@ -59,7 +60,7 @@ export async function supplyMoonwellAsset(
 		if (underlyingSymbol === 'ETH') {
 			// todo отдельные методы для ETH и других
 			const mTokenPayableAbi = ["function mint() external payable"];
-			const mTokenContract = new ethers.Contract(mTokenAddress, mTokenPayableAbi, wallet) as any;
+			const mTokenContract = new ethers.Contract(mTokenAddress, mTokenPayableAbi, signer) as any;
 
 			console.log(`Отправка ${amountHuman} ETH напрямую в payable контракт...`);
 			const txMint = await mTokenContract.mint({value: supplyAmountWei, gasLimit: 400000});
@@ -87,11 +88,11 @@ export async function supplyMoonwellAsset(
 			"function mint(uint256 mintAmount) external returns (uint256)"
 		];
 
-		const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet) as any;
-		const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, wallet) as any;
+		const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, signer) as any;
+		const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, signer) as any;
 
 		console.log(`Проверяем разрешения (allowance) для токена ${underlyingSymbol}...`);
-		const currentAllowance: bigint = await tokenContract.allowance(wallet.address, mTokenAddress);
+		const currentAllowance: bigint = await tokenContract.allowance(signer.address, mTokenAddress);
 
 		if (currentAllowance < supplyAmountWei) {
 			console.log(`Разрешений недостаточно. Отправляем Approve x10...`);

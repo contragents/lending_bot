@@ -1,7 +1,7 @@
 import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers, formatUnits} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 
 export async function repayMoonwellAsset(
 	chain: ChainType,
@@ -11,7 +11,8 @@ export async function repayMoonwellAsset(
 	console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
-	if (!wallet) {
+	const signer = wallets[chain];
+	if (!signer) {
 		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
 		return false;
 	}
@@ -34,8 +35,8 @@ export async function repayMoonwellAsset(
 		"function borrowBalanceStored(address account) view returns (uint256)"
 	];
 
-	const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet) as any;
-	const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, wallet) as any;
+	const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, signer) as any;
+	const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, signer) as any;
 
 	try {
 		// Переводим человеческую сумму в Wei с учетом decimals токена
@@ -46,7 +47,7 @@ export async function repayMoonwellAsset(
 		console.log(`Проверяем балансы и задолженность для ${underlyingSymbol}...`);
 
 		// 1. Проверяем реальный баланс токенов на кошельке
-		const walletBalanceWei: bigint = await tokenContract.balanceOf(wallet.address);
+		const walletBalanceWei: bigint = await tokenContract.balanceOf(signer.address);
 		const walletBalanceHuman = formatUnits(walletBalanceWei, decimals);
 
 		if (walletBalanceWei === 0n) {
@@ -56,7 +57,7 @@ export async function repayMoonwellAsset(
 		}
 
 		// 2. Проверяем точный текущий долг в Moonwell
-		const currentBorrowBalanceWei: bigint = await mTokenContract.borrowBalanceStored(wallet.address);
+		const currentBorrowBalanceWei: bigint = await mTokenContract.borrowBalanceStored(signer.address);
 		const currentBorrowHuman = formatUnits(currentBorrowBalanceWei, decimals);
 
 		console.log(`- Баланс кошелька:   ${walletBalanceHuman} ${underlyingSymbol}`);
@@ -87,7 +88,7 @@ export async function repayMoonwellAsset(
 
 		// ================= APPROVE И ОТПРАВКА =================
 		console.log(`Проверяем разрешения (allowance)...`);
-		const currentAllowance: bigint = await tokenContract.allowance(wallet.address, mTokenAddress);
+		const currentAllowance: bigint = await tokenContract.allowance(signer.address, mTokenAddress);
 
 		if (currentAllowance < approveAmount) {
 			// Рассчитываем сумму аппрува с запасом х10 от необходимой

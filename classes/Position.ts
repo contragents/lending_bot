@@ -1,5 +1,6 @@
 import type {LendingLeverageResult} from "../utils/invest_legal/recommend.js";
-import {getEnv} from "../config.js";
+import {BASE_CHAIN, type ChainType, getEnv} from "../config.js";
+import {ethers} from "ethers";
 
 export const LENDING_BOT_URL = "https://invest.legal/bot/lendingCorrection";
 
@@ -10,11 +11,25 @@ export type PositionAssets = {
 
 export abstract class Position {
     protected abstract readonly lendingId: number;
+    static readonly SUPPORTED_CHAINS: ChainType[] = [];
 
     assets: PositionAssets = {
         supply: {},
         borrow: {},
     };
+
+    constructor(
+        protected readonly chain: ChainType,
+        protected readonly provider: ethers.JsonRpcProvider
+    ) {
+        // Достаем статическое свойство из текущего класса-наследника
+        const CurrentClass = this.constructor as typeof Position & { SUPPORTED_CHAINS?: ChainType[] };
+        const supported = CurrentClass.SUPPORTED_CHAINS || [];
+
+        if (!supported.includes(chain)) {
+            throw new Error(`${this.constructor.name} is not supported for chain ${chain}`);
+        }
+    }
 
     abstract getPosition(): Promise<boolean>;
     abstract reportPosition(): Promise<boolean>;

@@ -1,7 +1,7 @@
 import { ethers, formatUnits } from "ethers";
 import { CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken } from "../../config.js";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallet} from "../loadWallet.js";
+import {wallets} from "../loadWallet.js";
 
 export async function withdrawMoonwellAsset(
 	chain: ChainType,
@@ -12,6 +12,11 @@ export async function withdrawMoonwellAsset(
 	const safeAmountString = amountHuman.toFixed(18);
 
 	console.log(`\n--- Moonwell Universal Withdraw: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
+	const signer = wallets[chain];
+	if (!signer) {
+		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
+		return false;
+	}
 
 	// Для ETH и WETH рынок один и тот же — WETH контракт ядра
 	const marketSymbol = (underlyingSymbol === 'ETH') ? 'WETH' : underlyingSymbol;
@@ -27,7 +32,7 @@ export async function withdrawMoonwellAsset(
 		"function redeemUnderlying(uint256 redeemAmount) external"
 	];
 
-	const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, wallet) as any;
+	const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, signer) as any;
 
 	try {
 		const decimals = (underlyingSymbol === 'ETH')

@@ -1,6 +1,6 @@
 import {BASE_CHAIN, CONFIG, HL_CHAIN, OPT_CHAIN, type ChainType, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
-import {initializeWallet, wallet} from "./utils/loadWallet.js";
+import {initializeWallet, wallets} from "./utils/loadWallet.js";
 import {MoonwellPosition} from "./classes/MoonwellPosition.js";
 import {MorphoPosition} from "./classes/MorphoPosition.js";
 import {HLPosition} from "./classes/HLPosition.js";
@@ -28,7 +28,7 @@ function getProvider(chain: ChainType): ethers.JsonRpcProvider {
 
 const chain: ChainType = OPT_CHAIN;
 const activeProvider = getProvider(chain);
-await initializeWallet(activeProvider);
+await initializeWallet(providers);
 
 // Глобальный перехватчик неисполненных промисов
 process.on('unhandledRejection', (reason: any, promise) => {
@@ -44,7 +44,7 @@ process.on('unhandledRejection', (reason: any, promise) => {
 });
 
 async function main() {
-    const moonwellPosition = new MoonwellPosition(chain, activeProvider);
+    const moonwellPosition = new MoonwellPosition(OPT_CHAIN, getProvider(OPT_CHAIN));
     const morphoPosition = new MorphoPosition(BASE_CHAIN, getProvider(BASE_CHAIN));
     const hlPosition = new HLPosition(HL_CHAIN, getProvider(HL_CHAIN));
     let borrowAmount = 0; // подлупка в токенах займа (OP)
@@ -69,7 +69,7 @@ async function main() {
             }
 
             // Получаем слепок всех балансов на кошельке
-            let walletBalances = await getWalletBalances(chain, activeProvider) as WalletBalances;
+            let walletBalances = await getWalletBalances(chain, getProvider(OPT_CHAIN)) as WalletBalances;
             console.log(walletBalances);
 
             const data = await moonwellPosition.getRecommend();
@@ -97,7 +97,7 @@ async function main() {
             console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
             if (chain === OPT_CHAIN) {
-                if (wallet) {
+                if (wallets[chain]) {
                     if (borrowAmount) {
                         await moonwellPosition.loop(borrowAmount);
                     } else if (supplyAmount) {

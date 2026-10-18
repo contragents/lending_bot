@@ -1,20 +1,13 @@
 import {
-	BUY_TOKEN,
 	OPT_CHAIN,
-	CHAIN,
 	CONFIG,
 	POOLS,
-	provider,
-	SELL_TOKEN,
+	type ChainType,
 	type SupportedToken,
 	type WalletBalances,
 	WATCH_ADDRESS
 } from "../config.js";
 import {ethers, formatUnits} from 'ethers';
-
-const currentNetwork = CONFIG.NETWORKS[CHAIN];
-const sellTokenAddr = currentNetwork.TOKENS[SELL_TOKEN]; // ETH
-const buyTokenAddr = currentNetwork.TOKENS[BUY_TOKEN];
 
 /**
  * Универсальная обертка для повторных попыток выполнения асинхронных функций
@@ -54,7 +47,15 @@ export async function withRetry<T>(
  * @param pool
  * @param provider
  */
-export async function getUniswapPoolPrice(pool: string, provider: ethers.JsonRpcProvider) {
+export async function getUniswapPoolPrice(
+    chain: ChainType,
+    pool: string,
+    provider: ethers.JsonRpcProvider
+) {
+    if (chain !== OPT_CHAIN) {
+        throw new Error(`Uniswap pool ${pool} is not configured for chain ${chain}`);
+    }
+
     const poolFee = pool === POOLS.OPT.EthOp005 ? "0.05" : "0.3";
 
     const poolContract = new ethers.Contract(pool, CONFIG.ABI.UNISWAP, provider) as any;
@@ -184,8 +185,12 @@ async function l1FeeEstimated(provider: ethers.JsonRpcProvider) {
     return (calldataGas * (scaledBaseFee + scaledBlobBaseFee)) / (BigInt(16) * (BigInt(10) ** oracleDecimals));
 }
 
-export async function getWalletBalances(): Promise<WalletBalances> {
-    console.log(`\n--- Проверка балансов кошелька (${CHAIN}) ---`);
+export async function getWalletBalances(
+    chain: ChainType,
+    provider: ethers.JsonRpcProvider
+): Promise<WalletBalances> {
+    const currentNetwork = CONFIG.NETWORKS[chain];
+    console.log(`\n--- Проверка балансов кошелька (${chain}) ---`);
     console.log(`Адрес: ${WATCH_ADDRESS}`);
 
     const balances: WalletBalances = {};
@@ -225,7 +230,7 @@ export async function getWalletBalances(): Promise<WalletBalances> {
             const tokenContract = new ethers.Contract(tokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, provider);
             // Запрашиваем баланс токена на кошельке
             //const balanceWei = await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
-            const balanceWei = await getTokenBalanceWei(tokenSymbol as SupportedToken);
+            const balanceWei = await getTokenBalanceWei(chain, provider, tokenSymbol as SupportedToken);
             // Используем decimals из глобального конфига
             const decimals = CONFIG.TOKEN_DECIMALS[tokenSymbol] ?? CONFIG.TOKEN_DECIMALS.default;
             const balanceHuman = Number(formatUnits(balanceWei, decimals));
@@ -248,8 +253,13 @@ export async function getWalletBalances(): Promise<WalletBalances> {
     }
 }
 
-async function getTokenBalanceWei(tokenSymbol: SupportedToken) {
-    const tokenAddress = currentNetwork.TOKENS[tokenSymbol as keyof typeof currentNetwork.TOKENS];
+async function getTokenBalanceWei(
+    chain: ChainType,
+    provider: ethers.JsonRpcProvider,
+    tokenSymbol: SupportedToken
+) {
+    const currentNetwork = CONFIG.NETWORKS[chain];
+    const tokenAddress = currentNetwork.TOKENS[tokenSymbol];
 
     // ДОБАВЛЯЕМ ПРАВИЛЬНУЮ ПРОВЕРКУ-ЗАЩИТУ ДЛЯ ФУНКЦИИ:
     if (!tokenAddress || tokenAddress === "0x0000000000000000000000000000000000000000") {
@@ -263,9 +273,13 @@ async function getTokenBalanceWei(tokenSymbol: SupportedToken) {
     return await withRetry<bigint>(() => (tokenContract as any).balanceOf(WATCH_ADDRESS));
 }
 
-async function getTokenBalanceHuman(tokenSymbol: SupportedToken) {
+async function getTokenBalanceHuman(
+    chain: ChainType,
+    provider: ethers.JsonRpcProvider,
+    tokenSymbol: SupportedToken
+) {
 
-    const balanceWei = await getTokenBalanceWei(tokenSymbol);
+    const balanceWei = await getTokenBalanceWei(chain, provider, tokenSymbol);
     // Используем decimals из глобального конфига
     const decimals = CONFIG.TOKEN_DECIMALS[tokenSymbol] ?? CONFIG.TOKEN_DECIMALS.default;
 

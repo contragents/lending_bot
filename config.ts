@@ -184,16 +184,8 @@ export const POOLS = {
 
 // Настройки
 export const WATCH_ADDRESS = '0x08d01ebaD78C6Dc1DfFC7c244d90C1143E906FEB';
-export let CHAIN: ChainType = OPT_CHAIN;
 export const SELL_TOKEN = 'WETH';
 export const BUY_TOKEN = 'USDC';
-
-export let provider: ethers.JsonRpcProvider;
-export const providers: {chain: ChainType; provider: ethers.JsonRpcProvider}[] = [];
-
-export function setActiveProvider(activeProvider: ethers.JsonRpcProvider): void {
-    provider = activeProvider;
-}
 
 export const MOONWELL_MARKETS = {
     OPT: {
@@ -240,11 +232,17 @@ export const MOONWELL_MARKETS = {
     }
 } as const;
 
+export function getMoonwellMarkets(chain: ChainType) {
+    if (chain !== OPT_CHAIN && chain !== BASE_CHAIN) {
+        throw new Error(`Moonwell markets are not configured for chain ${chain}`);
+    }
+
+    return MOONWELL_MARKETS[chain];
+}
+
 export interface WalletBalances {
     [tokenSymbol: string]: {
         wei: bigint;
         human: number;
     };
 }
-
-export const currentNetwork = CONFIG.NETWORKS[CHAIN];

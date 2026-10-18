@@ -1,13 +1,14 @@
-import {CHAIN, CONFIG, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 
 export async function borrowMoonwellAsset(
+	chain: ChainType,
 	underlyingSymbol: SupportedToken,
 	amountHuman: number
 ): Promise<boolean> {
-	console.log(`--- Moonwell Borrow Initialization (${CHAIN}) ---`);
+	console.log(`--- Moonwell Borrow Initialization (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
 	if (!wallet) {
@@ -17,11 +18,10 @@ export async function borrowMoonwellAsset(
 
 	try {
 		// 1. Извлекаем адрес напрямую из константы по текущей сети
-		const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
-		const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[underlyingSymbol];
+		const mTokenAddress = (getMoonwellMarkets(chain).M_TOKENS as any)[underlyingSymbol];
 
 		if (!mTokenAddress) {
-			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах сети ${CHAIN}`);
+			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах сети ${chain}`);
 		}
 
 		// Расчет суммы займа в Wei

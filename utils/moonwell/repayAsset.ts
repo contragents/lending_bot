@@ -1,13 +1,14 @@
-import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, type SupportedToken} from "../../config.js";
+import {CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers, formatUnits} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 
 export async function repayMoonwellAsset(
+	chain: ChainType,
 	underlyingSymbol: SupportedToken, // Какой долг гасим ('USDC', 'OP', 'WETH')
 	amountHuman: number               // Сколько токенов хотим вернуть
 ) {
-	console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${CHAIN}) ---`);
+	console.log(`\n--- Moonwell Repay Initialization: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
 	if (!wallet) {
@@ -15,15 +16,14 @@ export async function repayMoonwellAsset(
 		return false;
 	}
 
-	const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
-	const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[underlyingSymbol];
+	const mTokenAddress = (getMoonwellMarkets(chain).M_TOKENS as any)[underlyingSymbol];
 
 	if (!mTokenAddress) {
-		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
+		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${chain}`);
 	}
 
 	// Извлекаем адрес оригинального ERC-20 токена из конфигурации сети
-	const underlyingTokenAddress = (currentNetwork.TOKENS as any)[underlyingSymbol];
+	const underlyingTokenAddress = (CONFIG.NETWORKS[chain].TOKENS as any)[underlyingSymbol];
 	if (!underlyingTokenAddress) {
 		throw new Error(`Не найден адрес базового токена для ${underlyingSymbol} в конфигурации сети`);
 	}
@@ -34,7 +34,7 @@ export async function repayMoonwellAsset(
 		"function borrowBalanceStored(address account) view returns (uint256)"
 	];
 
-	const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
+	const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet) as any;
 	const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, wallet) as any;
 
 	try {

@@ -1,4 +1,4 @@
-import {CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, providers, setActiveProvider, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {BASE_CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, type ChainType, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
 import {initializeWallet, wallet} from "./utils/loadWallet.js";
 import {MoonwellPosition} from "./classes/MoonwellPosition.js";
@@ -6,24 +6,28 @@ import {MorphoPosition} from "./classes/MorphoPosition.js";
 import {HLPosition} from "./classes/HLPosition.js";
 import {FetchRequest, ethers} from "ethers";
 
+const providers = new Map<ChainType, ethers.JsonRpcProvider>();
 for (const chainName of CHAIN_NAMES) {
     const connection = new FetchRequest(CONFIG.NETWORKS[chainName].RPC_URL);
     connection.timeout = 5000;
-    providers.push({
-        chain: chainName,
-        provider: new ethers.JsonRpcProvider(
-            connection,
-            undefined,
-            {batchMaxCount: 1}
-        )
-    });
+    providers.set(
+        chainName,
+        new ethers.JsonRpcProvider(connection, undefined, {batchMaxCount: 1})
+    );
 }
 
-const activeProvider = providers.find(({chain}) => chain === CHAIN)?.provider;
-if (!activeProvider) {
-    throw new Error(`RPC provider is not configured for chain ${CHAIN}`);
+function getProvider(chain: ChainType): ethers.JsonRpcProvider {
+    const configuredProvider = providers.get(chain);
+    if (!configuredProvider) {
+        throw new Error(`RPC provider is not configured for chain ${chain}`);
+    }
+
+    return configuredProvider;
 }
-setActiveProvider(activeProvider);
+
+const chain: ChainType = OPT_CHAIN;
+const activeProvider = getProvider(chain);
+const baseProvider = getProvider(BASE_CHAIN);
 await initializeWallet(activeProvider);
 
 // Глобальный перехватчик неисполненных промисов
@@ -40,8 +44,8 @@ process.on('unhandledRejection', (reason: any, promise) => {
 });
 
 async function main() {
-    const moonwellPosition = new MoonwellPosition();
-    const morphoPosition = new MorphoPosition();
+    const moonwellPosition = new MoonwellPosition(chain, activeProvider);
+    const morphoPosition = new MorphoPosition(baseProvider);
     const hlPosition = new HLPosition();
     let borrowAmount = 0; // подлупка в токенах займа (OP)
     let supplyAmount = 0; // разлупка в токенах займа (OP)
@@ -54,7 +58,7 @@ async function main() {
         if (await morphoPosition.getPosition()) await morphoPosition.reportPosition();
         if (await hlPosition.getPosition()) await hlPosition.reportPosition();
 
-        if (CHAIN !== OPT_CHAIN) return;
+        if (chain !== OPT_CHAIN) return;
 
         try {
             if (!await moonwellPosition.getPosition()) {
@@ -65,7 +69,7 @@ async function main() {
             }
 
             // Получаем слепок всех балансов на кошельке
-            let walletBalances = await getWalletBalances() as WalletBalances;
+            let walletBalances = await getWalletBalances(chain, activeProvider) as WalletBalances;
             console.log(walletBalances);
 
             const data = await moonwellPosition.getRecommend();
@@ -92,7 +96,7 @@ async function main() {
             console.log(`Имя токена: ${borrowedToken}`);
             console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
-            if (CHAIN === OPT_CHAIN) {
+            if (chain === OPT_CHAIN) {
                 if (wallet) {
                     if (borrowAmount) {
                         await moonwellPosition.loop(borrowAmount);
@@ -117,10 +121,10 @@ async function main() {
     // await getMoonwellData(); // Общий статус, сколько можно занять в USD
     //await getJumperQuote();
     //await get0xQuoteV2("1.0");
-    //await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
-    //await getUniswapPoolPrice(POOLS.OPT.EthOp005, provider);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
-    //await estimatePriceImpact(provider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
+    //await getUniswapPoolPrice(chain, POOLS.OPT.EthOp03, activeProvider);
+    //await getUniswapPoolPrice(chain, POOLS.OPT.EthOp005, activeProvider);
+    //await estimatePriceImpact(activeProvider, borrowAmount, POOLS.OPT.EthOp03, CONFIG.ABI.UNISWAP);
+    //await estimatePriceImpact(activeProvider, borrowAmount, POOLS.OPT.EthOp005, CONFIG.ABI.UNISWAP);
 }
 
 main();

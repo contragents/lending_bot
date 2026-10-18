@@ -1,5 +1,5 @@
 import {ethers, formatUnits} from "ethers";
-import {CHAIN, CONFIG, currentNetwork, getEnv, LENDING, OPT_CHAIN, POOLS, provider, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
+import {CONFIG, getEnv, getMoonwellMarkets, LENDING, OPT_CHAIN, POOLS, type ChainType, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
 import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
 import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
@@ -23,33 +23,41 @@ export class MoonwellPosition extends Position {
     protected readonly lendingId = 4;
     private positionLoaded = false;
 
+    constructor(
+        private readonly chain: ChainType,
+        private readonly provider: ethers.JsonRpcProvider
+    ) {
+        super();
+    }
+
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};
         this.positionLoaded = false;
-        console.log(`--- Moonwell Assets & Liabilities (${CHAIN}) ---`);
-        const moonwellConfig = currentNetwork.MOONWELL;
+        console.log(`--- Moonwell Assets & Liabilities (${this.chain}) ---`);
+        const network = CONFIG.NETWORKS[this.chain];
+        const moonwellConfig = network.MOONWELL;
         if (!moonwellConfig) {
-            throw new Error(`Moonwell is not configured for chain ${CHAIN}`);
+            throw new Error(`Moonwell is not configured for chain ${this.chain}`);
         }
 
         const comptroller = new ethers.Contract(
             moonwellConfig.COMPTROLLER,
             CONFIG.ABI.MOONWELL,
-            provider
+            this.provider
         );
 
         try {
             const tgId = getEnv("TG_ID");
-            const chainConfig = LENDING[CHAIN as keyof typeof LENDING];
+            const chainConfig = LENDING[this.chain as keyof typeof LENDING];
             const userConfig = chainConfig?.[tgId as keyof typeof chainConfig];
             if (!userConfig) {
-                throw new Error(`Lending configuration is missing for user ${tgId} on ${CHAIN}`);
+                throw new Error(`Lending configuration is missing for user ${tgId} on ${this.chain}`);
             }
 
             const markets: string[] = await withRetry<string[]>(() => (comptroller as any).getAllMarkets());
 
             for (const mTokenAddress of markets) {
-                const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, provider);
+                const mToken = new ethers.Contract(mTokenAddress, CONFIG.ABI.MOONWELL, this.provider);
                 const [error, mTokenBalance, borrowBalance, exchangeRate] =
                     await withRetry<[bigint, bigint, bigint, bigint]>(() =>
                         (mToken as any).getAccountSnapshot(WATCH_ADDRESS)
@@ -107,22 +115,22 @@ export class MoonwellPosition extends Position {
 
     async getRecommend(): Promise<LendingLeverageResult> {
         const tgId = getEnv("TG_ID");
-        const chainConfig = LENDING[CHAIN as keyof typeof LENDING];
+        const chainConfig = LENDING[this.chain as keyof typeof LENDING];
         const userConfig = chainConfig?.[tgId as keyof typeof chainConfig];
         if (!userConfig) {
-            throw new Error(`Lending configuration is missing for user ${tgId} on ${CHAIN}`);
+            throw new Error(`Lending configuration is missing for user ${tgId} on ${this.chain}`);
         }
 
         return fetchLendingInstruction(userConfig.ID);
     }
 
     async loop(borrowAmount: number): Promise<void> {
-        let walletBalances = await getWalletBalances() as WalletBalances;
+        let walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
         let numTry = 0;
 
         if (getHumanBalance(walletBalances, "ETH") < 0.01) {
             if (getHumanBalance(walletBalances, "OP") < borrowAmount) {
-                console.log(await borrowMoonwellAsset("OP", borrowAmount));
+                console.log(await borrowMoonwellAsset(this.chain, "OP", borrowAmount));
             }
 
             const hasEth = getHumanBalance(walletBalances, "ETH");
@@ -130,7 +138,7 @@ export class MoonwellPosition extends Position {
                 numTry++;
                 await sleep(5000);
                 try {
-                    walletBalances = await getWalletBalances() as WalletBalances;
+                    walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
                     if (getHumanBalance(walletBalances, "ETH") > hasEth) {
                         console.log("ETH от обмена поступил на баланс кошелька");
                         break;
@@ -142,9 +150,9 @@ export class MoonwellPosition extends Position {
                         break;
                     }
 
-                    let quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+                    let quote = await getUniswapPoolPrice(this.chain, POOLS.OPT.EthOp03, this.provider);
                     quote = 1 / quote;
-                    console.log(await swapToEth("OP", getHumanBalance(walletBalances, "OP"), quote));
+                    console.log(await swapToEth(this.chain, "OP", getHumanBalance(walletBalances, "OP"), quote));
                 } catch (err) {
                     console.error(err);
                 }
@@ -159,10 +167,10 @@ export class MoonwellPosition extends Position {
             await sleep(5000);
 
             try {
-                walletBalances = await getWalletBalances() as WalletBalances;
+                walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
                 if (getHumanBalance(walletBalances, "ETH") > 0.01) {
                     status = "trySupply";
-                    await supplyMoonwellAsset("ETH", (walletBalances.ETH?.human ?? 0) - 0.004);
+                    await supplyMoonwellAsset(this.chain, "ETH", (walletBalances.ETH?.human ?? 0) - 0.004);
                     break;
                 }
 
@@ -174,13 +182,13 @@ export class MoonwellPosition extends Position {
     }
 
     async deLoop(supplyAmount: number): Promise<void> {
-        let walletBalances = await getWalletBalances() as WalletBalances;
+        let walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
         let numTry = 0;
 
         if (getHumanBalance(walletBalances, "OP") < supplyAmount * 0.9) {
-            const quote = await getUniswapPoolPrice(POOLS.OPT.EthOp03, provider);
+            const quote = await getUniswapPoolPrice(this.chain, POOLS.OPT.EthOp03, this.provider);
             if (getHumanBalance(walletBalances, "ETH") < 0.01) {
-                console.log(await withdrawMoonwellAsset("ETH", supplyAmount / quote));
+                console.log(await withdrawMoonwellAsset(this.chain, this.provider, "ETH", supplyAmount / quote));
             }
 
             const hasOp = getHumanBalance(walletBalances, "OP");
@@ -188,7 +196,7 @@ export class MoonwellPosition extends Position {
                 numTry++;
                 await sleep(5000);
                 try {
-                    walletBalances = await getWalletBalances() as WalletBalances;
+                    walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
                     if (getHumanBalance(walletBalances, "OP") > hasOp) {
                         console.log("OP от обмена поступил на баланс кошелька");
                         break;
@@ -200,7 +208,7 @@ export class MoonwellPosition extends Position {
                         break;
                     }
 
-                    console.log(await swapEthToOp("OP", getHumanBalance(walletBalances, "ETH") - 0.004, quote));
+                    console.log(await swapEthToOp(this.chain, "OP", getHumanBalance(walletBalances, "ETH") - 0.004, quote));
                 } catch (err) {
                     console.error(err);
                 }
@@ -214,10 +222,10 @@ export class MoonwellPosition extends Position {
             await sleep(5000);
 
             try {
-                walletBalances = await getWalletBalances() as WalletBalances;
+                walletBalances = await getWalletBalances(this.chain, this.provider) as WalletBalances;
                 if (getHumanBalance(walletBalances, "OP") > supplyAmount * 0.9) {
                     status = "tryRepay";
-                    console.log(await repayMoonwellAsset("OP", getHumanBalance(walletBalances, "OP")));
+                    console.log(await repayMoonwellAsset(this.chain, "OP", getHumanBalance(walletBalances, "OP")));
                     break;
                 }
 

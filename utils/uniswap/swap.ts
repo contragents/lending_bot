@@ -1,4 +1,4 @@
-import { CONFIG, type SupportedToken } from "../../config.js";
+import { CONFIG, OPT_CHAIN, type ChainType, type SupportedToken } from "../../config.js";
 
 import { ethers } from "ethers";
 import { wallet } from "../loadWallet.js";
@@ -11,10 +11,27 @@ import { wallet } from "../loadWallet.js";
  * @param quote {number} стоимость 1 ETH в целевых токенах
  */
 export async function swapEthToOp(
+	chain: ChainType,
 	underlyingSymbol: SupportedToken, // OP
 	amountHumanEth: number,
 	quote: number
 ): Promise<boolean> {
+	if (chain !== OPT_CHAIN) {
+		throw new Error(`Uniswap swap is not configured for chain ${chain}`);
+	}
+	if (!wallet) {
+		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
+		return false;
+	}
+	const signer = wallet;
+	const network = CONFIG.NETWORKS[chain];
+	const wethAddress = network.TOKENS.WETH;
+	const outputTokenAddress = network.TOKENS[underlyingSymbol];
+	if (!wethAddress || !outputTokenAddress) {
+		throw new Error(`Token address is not configured for ${underlyingSymbol} on ${chain}`);
+	}
+	const configuredWethAddress: string = wethAddress;
+	const configuredOutputTokenAddress: string = outputTokenAddress;
 	const SWAP_ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 	async function main() {
@@ -24,19 +41,19 @@ export async function swapEthToOp(
 		const amountOutMin = ethers.parseUnits((amountHumanEth * quote * 0.99).toFixed(18), 18);
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
-		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, wallet);
+		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, signer) as any;
 
 		// Шаг 1: Кодируем путь обмена WETH -> Пул 0.3% -> Целевой токен
 		// Роутер автоматически заберет нативный ETH и обернет в WETH
 		const path = ethers.solidityPacked(
 			["address", "uint24", "address"],
-			[CONFIG.NETWORKS.OPT.TOKENS.WETH, 3000, CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol]]
+			[configuredWethAddress, 3000, configuredOutputTokenAddress]
 		);
 
 		// Шаг 2: Подготовка параметров для exactInput
 		const params = {
 			path: path,
-			recipient: wallet.address, // Токены сразу идут на ваш кошелек
+			recipient: signer.address, // Токены сразу идут на ваш кошелек
 			deadline: deadline,
 			amountIn: amountIn,
 			amountOutMinimum: amountOutMin
@@ -73,10 +90,27 @@ export async function swapEthToOp(
  * @param quote {number} стоимость 'underlyingSymbol' в Эфирах
  */
 export async function swapToEth(
+	chain: ChainType,
 	underlyingSymbol: SupportedToken,
 	amountHuman: number,
 	quote: number
 ): Promise<boolean> {
+	if (chain !== OPT_CHAIN) {
+		throw new Error(`Uniswap swap is not configured for chain ${chain}`);
+	}
+	if (!wallet) {
+		console.error("❌ Ошибка: Действие невозможно. Кошелек не инициализирован (режим чтения).");
+		return false;
+	}
+	const signer = wallet;
+	const network = CONFIG.NETWORKS[chain];
+	const wethAddress = network.TOKENS.WETH;
+	const inputTokenAddress = network.TOKENS[underlyingSymbol];
+	if (!wethAddress || !inputTokenAddress) {
+		throw new Error(`Token address is not configured for ${underlyingSymbol} on ${chain}`);
+	}
+	const configuredWethAddress: string = wethAddress;
+	const configuredInputTokenAddress: string = inputTokenAddress;
 	const SWAP_ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 	async function main() {
@@ -84,8 +118,8 @@ export async function swapToEth(
 		const amountOutMin = ethers.parseUnits((quote * amountHuman * 0.99).toFixed(18), 18);   // Минимальный ETH (защита от проскальзывания)
 		const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Срок действия 10 минут
 
-		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, wallet);
-		const opContract = new ethers.Contract(CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol], CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
+		const routerContract = new ethers.Contract(SWAP_ROUTER_ADDRESS, CONFIG.ABI.UNISWAP_ROUTER, signer) as any;
+		const opContract = new ethers.Contract(configuredInputTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, signer) as any;
 
 		// Шаг 1: Одобряем роутеру трату токенов OP
 		console.log("1. Отправка Approve...");
@@ -97,7 +131,7 @@ export async function swapToEth(
 		// 3000 bps в Uniswap соответствует пулу с комиссией 0.3%
 		const path = ethers.solidityPacked(
 			["address", "uint24", "address"],
-			[CONFIG.NETWORKS.OPT.TOKENS[underlyingSymbol], 3000, CONFIG.NETWORKS.OPT.TOKENS.WETH]
+			[configuredInputTokenAddress, 3000, configuredWethAddress]
 		);
 
 		// Шаг 3: Кодируем внутренние вызовы для Multicall
@@ -116,7 +150,7 @@ export async function swapToEth(
 		// Инструкция Б: Роутер забирает полученный WETH, разворачивает в ETH и отправляет на ваш кошелек
 		const unwrapWETH9Data = routerContract.interface.encodeFunctionData("unwrapWETH9", [
 			amountOutMin,   // Минимальное количество на выход
-			wallet.address  // Конечный получатель нативного ETH (ваш кошелек)
+			signer.address  // Конечный получатель нативного ETH (ваш кошелек)
 		]);
 
 		// Шаг 4: Упаковываем обе инструкции в один массив и отправляем одну транзакцию

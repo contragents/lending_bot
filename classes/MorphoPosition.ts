@@ -1,5 +1,5 @@
 import {ethers, formatUnits} from "ethers";
-import {BASE_CHAIN, CONFIG, getEnv, LENDING, providers, WATCH_ADDRESS} from "../config.js";
+import {BASE_CHAIN, CONFIG, getEnv, LENDING, WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
 import {withRetry} from "../utils/utils.js";
 
@@ -11,17 +11,16 @@ export class MorphoPosition extends Position {
     private hasPosition = false;
     private positionLoaded = false;
 
+    constructor(private readonly provider: ethers.JsonRpcProvider) {
+        super();
+    }
+
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};
         this.hasPosition = false;
         this.positionLoaded = false;
         console.log(`--- Morpho Blue Assets & Liabilities (${BASE_CHAIN}) ---`);
-        const baseProvider = providers.find(({chain}) => chain === BASE_CHAIN)?.provider;
-        if (!baseProvider) {
-            throw new Error(`RPC provider is not initialized for chain ${BASE_CHAIN}`);
-        }
-
-        const morpho = new ethers.Contract(MORPHO_BLUE_ADDRESS, CONFIG.ABI.MORPHO, baseProvider);
+        const morpho = new ethers.Contract(MORPHO_BLUE_ADDRESS, CONFIG.ABI.MORPHO, this.provider);
 
         try {
             const tgId = getEnv("TG_ID");

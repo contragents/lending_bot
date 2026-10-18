@@ -1,13 +1,14 @@
-import {CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, OPT_CHAIN, type SupportedToken} from "../../config.js";
+import {CONFIG, getMoonwellMarkets, MOONWELL_MARKETS, OPT_CHAIN, type ChainType, type SupportedToken} from "../../config.js";
 import {ethers} from "ethers";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 
 export async function supplyMoonwellAsset(
+	chain: ChainType,
 	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
 	amountHuman: number               // Сколько токенов вносим в человеческом формате
 ): Promise<boolean> {
-	console.log(`\n--- Moonwell Universal Supply: ${amountHuman} ${underlyingSymbol} (${CHAIN}) ---`);
+	console.log(`\n--- Moonwell Universal Supply: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
 
 	// Проверяем, авторизован ли кошелек
 	if (!wallet) {
@@ -21,14 +22,12 @@ export async function supplyMoonwellAsset(
 		return false;
 	}
 
-	const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
-
 	const decimals = CONFIG.TOKEN_DECIMALS[underlyingSymbol as keyof typeof CONFIG.TOKEN_DECIMALS] ?? CONFIG.TOKEN_DECIMALS.default;
 	const supplyAmountWei = ethers.parseUnits(amountHuman.toString(), decimals);
 
 	try {
 		if (underlyingSymbol === 'ETH') {
-			if (CHAIN === OPT_CHAIN) {
+			if (chain === OPT_CHAIN) {
 				// todo отдельные методы для ETH и других
 				// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
 				const routerAbi = ["function mint(address recipient) external payable returns (uint256)"];
@@ -50,10 +49,10 @@ export async function supplyMoonwellAsset(
 		}
 
 		const marketSymbol = (underlyingSymbol === 'ETH') ? 'WETH' : underlyingSymbol;
-		const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[marketSymbol];
+		const mTokenAddress = (getMoonwellMarkets(chain).M_TOKENS as any)[marketSymbol];
 
 		if (!mTokenAddress) {
-			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
+			throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${chain}`);
 		}
 
 		// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был BASE/Moonbeam) =================
@@ -77,7 +76,7 @@ export async function supplyMoonwellAsset(
 		}
 
 		// ================= ВАРИАНТ 2: ERC-20 ТОКЕНЫ (USDC, OP, WETH) =================
-		const underlyingTokenAddress = (currentNetwork.TOKENS as any)[underlyingSymbol];
+		const underlyingTokenAddress = (CONFIG.NETWORKS[chain].TOKENS as any)[underlyingSymbol];
 		if (!underlyingTokenAddress) {
 			throw new Error(`Не найден адрес базового токена для ${underlyingSymbol} в конфигурации сети`);
 		}
@@ -88,7 +87,7 @@ export async function supplyMoonwellAsset(
 			"function mint(uint256 mintAmount) external returns (uint256)"
 		];
 
-		const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet);
+		const tokenContract = new ethers.Contract(underlyingTokenAddress, CONFIG.ABI.ERC20_BALANCE_ABI, wallet) as any;
 		const mTokenContract = new ethers.Contract(mTokenAddress, mTokenExtendedAbi, wallet) as any;
 
 		console.log(`Проверяем разрешения (allowance) для токена ${underlyingSymbol}...`);

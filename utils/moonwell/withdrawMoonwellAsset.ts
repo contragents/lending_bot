@@ -1,24 +1,24 @@
 import { ethers, formatUnits } from "ethers";
-import { CHAIN, CONFIG, currentNetwork, MOONWELL_MARKETS, provider, type SupportedToken } from "../../config.js";
+import { CONFIG, getMoonwellMarkets, type ChainType, type SupportedToken } from "../../config.js";
 import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
 import {wallet} from "../loadWallet.js";
 
 export async function withdrawMoonwellAsset(
+	chain: ChainType,
+	provider: ethers.JsonRpcProvider,
 	underlyingSymbol: SupportedToken, // Что выводим ('USDC', 'OP', 'ETH', 'WETH')
 	amountHuman: number               // Сколько токенов забрать на кошелек
 ) {
 	const safeAmountString = amountHuman.toFixed(18);
 
-	console.log(`\n--- Moonwell Universal Withdraw: ${amountHuman} ${underlyingSymbol} (${CHAIN}) ---`);
-
-	const networkKey = CHAIN as keyof typeof MOONWELL_MARKETS;
+	console.log(`\n--- Moonwell Universal Withdraw: ${amountHuman} ${underlyingSymbol} (${chain}) ---`);
 
 	// Для ETH и WETH рынок один и тот же — WETH контракт ядра
 	const marketSymbol = (underlyingSymbol === 'ETH') ? 'WETH' : underlyingSymbol;
-	const mTokenAddress = (MOONWELL_MARKETS[networkKey].M_TOKENS as any)[marketSymbol];
+	const mTokenAddress = (getMoonwellMarkets(chain).M_TOKENS as any)[marketSymbol];
 
 	if (!mTokenAddress) {
-		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${CHAIN}`);
+		throw new Error(`Токен ${underlyingSymbol} не поддерживается в константах Moonwell для сети ${chain}`);
 	}
 
 	// Сигнатура external без возвращаемого значения (returns) для стабильной работы ethers.js v6

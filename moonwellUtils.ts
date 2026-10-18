@@ -1,4 +1,4 @@
-import {CHAIN, CONFIG, currentNetwork} from "./config.js";
+import {CONFIG, type ChainType} from "./config.js";
 import {ethers} from 'ethers';
 import {withRetry} from "./utils/utils.js";
 
@@ -8,11 +8,14 @@ export interface MTokensCache {
 }
 
 // Вызывается один раз при старте бота
-export async function initializeMTokensCache(provider: ethers.JsonRpcProvider): Promise<MTokensCache> {
-    console.log(`--- Инициализация кэша mTokens Moonwell (${CHAIN}) ---`);
-    const moonwellConfig = currentNetwork.MOONWELL;
+export async function initializeMTokensCache(
+    chain: ChainType,
+    provider: ethers.JsonRpcProvider
+): Promise<MTokensCache> {
+    console.log(`--- Инициализация кэша mTokens Moonwell (${chain}) ---`);
+    const moonwellConfig = CONFIG.NETWORKS[chain].MOONWELL;
     if (!moonwellConfig) {
-        throw new Error(`Moonwell is not configured for chain ${CHAIN}`);
+        throw new Error(`Moonwell is not configured for chain ${chain}`);
     }
 
     const comptroller = new ethers.Contract(

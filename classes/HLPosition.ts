@@ -1,7 +1,9 @@
-import {WATCH_ADDRESS} from "../config.js";
+import {HL_CHAIN, type ChainType, WATCH_ADDRESS} from "../config.js";
+import {ethers} from "ethers";
 import {Position} from "./Position.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+const SUPPORTED_CHAINS: readonly ChainType[] = [HL_CHAIN];
 
 type HyperliquidPositionData = {
     coin: string;
@@ -93,10 +95,20 @@ export class HLPosition extends Position {
     protected readonly lendingId = 6;
     private positionLoaded = false;
 
+    constructor(
+        private readonly chain: ChainType,
+        _provider: ethers.JsonRpcProvider
+    ) {
+        super();
+        if (!SUPPORTED_CHAINS.includes(chain)) {
+            throw new Error(`Hyperliquid is not supported for chain ${chain}`);
+        }
+    }
+
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};
         this.positionLoaded = false;
-        console.log("--- Hyperliquid Account ---");
+        console.log(`--- Hyperliquid Account (${this.chain}) ---`);
         console.log(`User: ${WATCH_ADDRESS}`);
 
         try {

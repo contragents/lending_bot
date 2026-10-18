@@ -1,4 +1,4 @@
-import {BASE_CHAIN, CHAIN_NAMES, CONFIG, OPT_CHAIN, type ChainType, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {BASE_CHAIN, CONFIG, HL_CHAIN, OPT_CHAIN, type ChainType, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
 import {initializeWallet, wallet} from "./utils/loadWallet.js";
 import {MoonwellPosition} from "./classes/MoonwellPosition.js";
@@ -7,7 +7,7 @@ import {HLPosition} from "./classes/HLPosition.js";
 import {FetchRequest, ethers} from "ethers";
 
 const providers = new Map<ChainType, ethers.JsonRpcProvider>();
-for (const chainName of CHAIN_NAMES) {
+for (const chainName of [OPT_CHAIN, BASE_CHAIN] as const) {
     const connection = new FetchRequest(CONFIG.NETWORKS[chainName].RPC_URL);
     connection.timeout = 5000;
     providers.set(
@@ -15,6 +15,7 @@ for (const chainName of CHAIN_NAMES) {
         new ethers.JsonRpcProvider(connection, undefined, {batchMaxCount: 1})
     );
 }
+providers.set(HL_CHAIN, new ethers.JsonRpcProvider());
 
 function getProvider(chain: ChainType): ethers.JsonRpcProvider {
     const configuredProvider = providers.get(chain);
@@ -27,7 +28,6 @@ function getProvider(chain: ChainType): ethers.JsonRpcProvider {
 
 const chain: ChainType = OPT_CHAIN;
 const activeProvider = getProvider(chain);
-const baseProvider = getProvider(BASE_CHAIN);
 await initializeWallet(activeProvider);
 
 // Глобальный перехватчик неисполненных промисов
@@ -45,8 +45,8 @@ process.on('unhandledRejection', (reason: any, promise) => {
 
 async function main() {
     const moonwellPosition = new MoonwellPosition(chain, activeProvider);
-    const morphoPosition = new MorphoPosition(baseProvider);
-    const hlPosition = new HLPosition();
+    const morphoPosition = new MorphoPosition(BASE_CHAIN, getProvider(BASE_CHAIN));
+    const hlPosition = new HLPosition(HL_CHAIN, getProvider(HL_CHAIN));
     let borrowAmount = 0; // подлупка в токенах займа (OP)
     let supplyAmount = 0; // разлупка в токенах займа (OP)
     let borrowedToken = 'OP';

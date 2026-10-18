@@ -1,5 +1,5 @@
 import {ethers, formatUnits} from "ethers";
-import {CONFIG, getEnv, getMoonwellMarkets, LENDING, OPT_CHAIN, POOLS, type ChainType, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
+import {BASE_CHAIN, CONFIG, getEnv, getMoonwellMarkets, LENDING, OPT_CHAIN, POOLS, type ChainType, type SupportedToken, type WalletBalances, WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
 import {fetchLendingInstruction, type LendingLeverageResult} from "../utils/invest_legal/recommend.js";
 import {borrowMoonwellAsset} from "../utils/moonwell/borrowAsset.js";
@@ -9,6 +9,8 @@ import {withdrawMoonwellAsset} from "../utils/moonwell/withdrawMoonwellAsset.js"
 import {swapEthToOp, swapToEth} from "../utils/uniswap/swap.js";
 import {getUniswapPoolPrice, getWalletBalances, sleep, withRetry} from "../utils/utils.js";
 import {wallet} from "../utils/loadWallet.js";
+
+const SUPPORTED_CHAINS: readonly ChainType[] = [BASE_CHAIN, OPT_CHAIN];
 
 function getHumanBalance(balances: WalletBalances, token: SupportedToken): number {
     const balance = balances[token];
@@ -28,6 +30,9 @@ export class MoonwellPosition extends Position {
         private readonly provider: ethers.JsonRpcProvider
     ) {
         super();
+        if (!SUPPORTED_CHAINS.includes(chain)) {
+            throw new Error(`Moonwell is not supported for chain ${chain}`);
+        }
     }
 
     async getPosition(): Promise<boolean> {

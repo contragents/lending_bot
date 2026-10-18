@@ -1,32 +1,39 @@
 import {ethers, formatUnits} from "ethers";
-import {BASE_CHAIN, CONFIG, getEnv, LENDING, WATCH_ADDRESS} from "../config.js";
+import {BASE_CHAIN, CONFIG, getEnv, LENDING, type ChainType, WATCH_ADDRESS} from "../config.js";
 import {Position} from "./Position.js";
 import {withRetry} from "../utils/utils.js";
 
 const MORPHO_BLUE_ADDRESS = ethers.getAddress("0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb".toLowerCase());
 const MARKET_ID = "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
+const SUPPORTED_CHAINS: readonly ChainType[] = [BASE_CHAIN];
 
 export class MorphoPosition extends Position {
     protected readonly lendingId = 5;
     private hasPosition = false;
     private positionLoaded = false;
 
-    constructor(private readonly provider: ethers.JsonRpcProvider) {
+    constructor(
+        private readonly chain: ChainType,
+        private readonly provider: ethers.JsonRpcProvider
+    ) {
         super();
+        if (!SUPPORTED_CHAINS.includes(chain)) {
+            throw new Error(`Morpho is not supported for chain ${chain}`);
+        }
     }
 
     async getPosition(): Promise<boolean> {
         this.assets = {supply: {}, borrow: {}};
         this.hasPosition = false;
         this.positionLoaded = false;
-        console.log(`--- Morpho Blue Assets & Liabilities (${BASE_CHAIN}) ---`);
+        console.log(`--- Morpho Blue Assets & Liabilities (${this.chain}) ---`);
         const morpho = new ethers.Contract(MORPHO_BLUE_ADDRESS, CONFIG.ABI.MORPHO, this.provider);
 
         try {
             const tgId = getEnv("TG_ID");
             const userConfig = LENDING[BASE_CHAIN][tgId as keyof typeof LENDING[typeof BASE_CHAIN]];
             if (!userConfig) {
-                throw new Error(`Lending configuration is missing for user ${tgId} on ${BASE_CHAIN}`);
+                throw new Error(`Lending configuration is missing for user ${tgId} on ${this.chain}`);
             }
 
             const [supplyShares, borrowShares, collateral] = await withRetry<[bigint, bigint, bigint]>(() =>

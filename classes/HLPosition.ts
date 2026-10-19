@@ -109,14 +109,13 @@ export class HLPosition extends Position {
         const entries = Object.entries(loop.borrow ?? {})
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
 
-        if (entries.length === 0) {
+        if (entries.length === 0 && Object.entries(loop.supply ?? {}).length === 0) {
             console.log("HL loop: no perpetual orders to place");
 
             return;
         }
 
         console.log('Borrows', entries, 'Supplys', loop.supply ?? {});
-        return;
 
         for (const [coin, size] of entries) {
             if (!coin.trim()) {
@@ -205,6 +204,9 @@ export class HLPosition extends Position {
         console.log('HL deloop', deloop);
         const privateKey = getEnv('HYPER_KEY');
         const address=getEnv('HYPER_ADDRESS');
+
+        console.log('Borrows', deloop.borrow, 'Supplys', deloop.supply ?? {});
+        return;
     }
 
     async getPosition(): Promise<boolean> {

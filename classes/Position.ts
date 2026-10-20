@@ -46,7 +46,22 @@ export abstract class Position {
         return Promise.resolve(true);
     }
 
-    abstract reportPosition(): Promise<boolean>;
+    async reportPosition(): Promise<boolean> {
+        if (!this.positionLoaded) {
+            throw new Error("Call getPosition() before reportPosition()");
+        }
+
+        try {
+            const url = this.createReportUrl(this.createReportParams(this.assets));
+            const response = await fetch(url.href);
+            const text = await response.text();
+            console.log(url.href, text);
+            return text === "OK";
+        } catch (error) {
+            console.error(`Ошибка при отправке позиций ${this.constructor.name}:`, error);
+            return false;
+        }
+    }
 
     async getRecommend(): Promise<LendingLeverageResult> {
         return fetchLendingInstruction(this.lendingId);

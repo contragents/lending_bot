@@ -38,6 +38,14 @@ type SpotClearinghouseState = {
     balances: SpotTokenBalance[];
 };
 
+type PerpetualOrderIntent = {
+    coin: string;
+    size: number;
+    isBuy: boolean;
+    reduceOnly: boolean;
+    action: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
@@ -106,24 +114,74 @@ export class HLPosition extends Position {
      * @param loop Массив Токен-количество
      */
     async loop(amount: number, loop: LendingLeverageInstruction): Promise<void> {
-        const entries = Object.entries(loop.borrow ?? {})
+        const borrowEntries = Object.entries(loop.borrow ?? {})
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
+        const supplyEntries = Object.entries(loop.supply ?? {})
+            .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
+        console.log("Borrows", borrowEntries, "Supplys", supplyEntries);
 
-        if (entries.length === 0 && Object.entries(loop.supply ?? {}).length === 0) {
-            console.log("HL loop: no perpetual orders to place");
+        await this.placePerpetualOrders([
+            ...borrowEntries.map(([coin, size]) => ({
+                coin,
+                size,
+                isBuy: false,
+                reduceOnly: false,
+                action: "opened short",
+            })),
+            ...supplyEntries.map(([coin, size]) => ({
+                coin,
+                size,
+                isBuy: true,
+                reduceOnly: false,
+                action: "opened long",
+            })),
+        ], "HL loop: no perpetual orders to place");
+    }
 
+    /**
+     * @param amount количество токена для разлупки
+     * @param deloop Массив Токен-количество
+     */
+    async deLoop(amount: number, deloop: LendingLeverageInstruction): Promise<void> {
+        const borrowEntries = Object.entries(deloop.borrow ?? {})
+            .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
+        const supplyEntries = Object.entries(deloop.supply ?? {})
+            .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
+        console.log("HL deloop: closing shorts", borrowEntries, "closing longs", supplyEntries);
+
+        await this.placePerpetualOrders([
+            ...borrowEntries.map(([coin, size]) => ({
+                coin,
+                size,
+                isBuy: true,
+                reduceOnly: true,
+                action: "closed short",
+            })),
+            ...supplyEntries.map(([coin, size]) => ({
+                coin,
+                size,
+                isBuy: false,
+                reduceOnly: true,
+                action: "closed long",
+            })),
+        ], "HL deloop: no perpetual orders to place");
+    }
+
+    private async placePerpetualOrders(
+        orderIntents: PerpetualOrderIntent[],
+        emptyMessage: string
+    ): Promise<void> {
+        if (orderIntents.length === 0) {
+            console.log(emptyMessage);
             return;
         }
 
-        console.log('Borrows', entries, 'Supplys', loop.supply ?? {});
-
-        for (const [coin, size] of entries) {
+        for (const {coin, size} of orderIntents) {
             if (!coin.trim()) {
-                throw new Error("Hyperliquid loop contains an empty coin symbol");
+                throw new Error("Hyperliquid order contains an empty coin symbol");
             }
-
             if (!Number.isFinite(size) || size <= 0) {
-                throw new Error(`Invalid Hyperliquid loop size for ${coin}: ${size}`);
+                throw new Error(`Invalid Hyperliquid order size for ${coin}: ${size}`);
             }
         }
 
@@ -149,7 +207,7 @@ export class HLPosition extends Position {
             withRetry(() => info.allMids()),
             withRetry(() => SymbolConverter.create({transport})),
         ]);
-        const orders = entries.map(([coin, size]) => {
+        const orders = orderIntents.map(({coin, size, isBuy, reduceOnly}) => {
             const assetId = converter.getAssetId(coin);
             const sizeDecimals = converter.getSzDecimals(coin);
             const mid = Number(mids[coin]);
@@ -162,10 +220,10 @@ export class HLPosition extends Position {
 
             return {
                 a: assetId,
-                b: false,
-                p: formatPrice(mid * 0.99, sizeDecimals),
+                b: isBuy,
+                p: formatPrice(mid * (isBuy ? 1.01 : 0.99), sizeDecimals),
                 s: formatSize(size, sizeDecimals),
-                r: false,
+                r: reduceOnly,
                 t: {limit: {tif: "Ioc" as const}},
                 c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
             };
@@ -180,33 +238,20 @@ export class HLPosition extends Position {
 
         const incompleteOrders: string[] = [];
         statuses.forEach((status, index) => {
-            const coin = entries[index]![0];
+            const {coin, action} = orderIntents[index]!;
             if (typeof status !== "object" || status === null || !("filled" in status)) {
                 incompleteOrders.push(`${coin}: ${JSON.stringify(status)}`);
                 return;
             }
-            console.log(`HL loop: opened short ${status.filled.totalSz} ${coin} at ${status.filled.avgPx} USDC`);
+            console.log(`HL order: ${action} ${status.filled.totalSz} ${coin} at ${status.filled.avgPx} USDC`);
             const requestedSize = Number(orders[index]!.s);
             if (Number(status.filled.totalSz) < requestedSize) {
                 incompleteOrders.push(`${coin}: filled ${status.filled.totalSz} of ${orders[index]!.s}`);
             }
         });
         if (incompleteOrders.length > 0) {
-            throw new Error(`Hyperliquid loop orders were not fully filled: ${incompleteOrders.join("; ")}`);
+            throw new Error(`Hyperliquid orders were not fully filled: ${incompleteOrders.join("; ")}`);
         }
-    }
-
-    /**
-     * @param amount количество токена для разлупки
-     * @param deloop Массив Токен-количество
-     */
-    async deLoop(amount: number, deloop: LendingLeverageInstruction): Promise<void> {
-        console.log('HL deloop', deloop);
-        const privateKey = getEnv('HYPER_KEY');
-        const address=getEnv('HYPER_ADDRESS');
-
-        console.log('Borrows', deloop.borrow, 'Supplys', deloop.supply ?? {});
-        return;
     }
 
     async getPosition(): Promise<boolean> {
@@ -300,20 +345,4 @@ export class HLPosition extends Position {
         }
     }
 
-    async reportPosition(): Promise<boolean> {
-        if (!this.positionLoaded) {
-            throw new Error("Call getPosition() before reportPosition()");
-        }
-
-        try {
-            const url = this.createReportUrl(this.createReportParams(this.assets));
-            const response = await fetch(url.href);
-            const text = await response.text();
-            console.log(url.href, text);
-            return text === "OK";
-        } catch (error) {
-            console.error("Ошибка при отправке позиций Hyperliquid:", error);
-            return false;
-        }
-    }
 }

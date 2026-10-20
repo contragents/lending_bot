@@ -5,7 +5,8 @@ const LONG_TOKENS = [
     { name: 'ETH', pct: 70 },
     { name: 'BTC', pct: 15 },
     { name: 'HYPE', pct: 7.5 },
-    { name: 'NEAR', pct: 7.5 }
+    { name: 'NEAR', pct: 7.5 },
+    { name: 'ZEC', pct: 5 },
 ];
 
 document.getElementById('analyzeBtn').addEventListener('click', async () => {
@@ -107,13 +108,21 @@ function runFullPortfolioAnalysis(allowedLongTokens) {
     function parseHLTotalEquity() {
         let equity = 0;
 
-        // Ищем по всем текстовым элементам на странице
-        const allElements = document.querySelectorAll('div, span, td');
+        // Ищем по всем div элементам
+        const allElements = document.querySelectorAll('div');
         for (let el of allElements) {
             if (el.innerText && (el.innerText.includes('Total Equity') || el.innerText.includes('Trading Equity'))) {
-                const text = el.innerText.replace(',', '.');
-                // Регулярное выражение вытаскивает число после слов Total/Trading Equity
-                const match = text.match(/(?:Total|Trading)\s+Equity\s*[\$]?\s*([0-9.]+)/i);
+
+                // 1. Очищаем строку от неразрывных (&nbsp;) и обычных пробелов
+                // \u00a0 — это JavaScript-представление для &nbsp;
+                let cleanText = el.innerText.replace(/[\u00a0\s]/g, '');
+
+                // 2. Заменяем запятую на точку для правильного parseFloat
+                cleanText = cleanText.replace(',', '.');
+
+                // 3. Регулярное выражение ищет число, в котором теперь нет пробелов-разделителей
+                const match = cleanText.match(/(?:Total|Trading)Equity[$]?([0-9.]+)/i);
+
                 if (match && match[1]) {
                     equity = parseFloat(match[1]);
                     break;
@@ -121,7 +130,9 @@ function runFullPortfolioAnalysis(allowedLongTokens) {
             }
         }
 
-        // Запасной перестраховочный метод парсинга строк таблицы
+        return equity;
+
+    // Запасной перестраховочный метод парсинга строк таблицы
         if (equity === 0) {
             const rows = document.querySelectorAll('tr');
             rows.forEach(row => {

@@ -108,23 +108,6 @@ export class MoonwellPosition extends Position {
         }
     }
 
-    async reportPosition(): Promise<boolean> {
-        if (!this.positionLoaded) {
-            throw new Error("Call getPosition() before reportPosition()");
-        }
-
-        try {
-            const url = this.createReportUrl(this.createReportParams(this.assets));
-            const response = await fetch(url.href);
-            const text = await response.text();
-            console.log(url.href, text);
-            return text === "OK";
-        } catch (err) {
-            console.error("Ошибка при отправке позиций Moonwell:", err);
-            return false;
-        }
-    }
-
     async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
         if (!wallets[this.chain]) return;
 

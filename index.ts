@@ -1,4 +1,4 @@
-import {BASE_CHAIN, type ChainType, CONFIG, HL_CHAIN, OPT_CHAIN, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
+import {BASE_CHAIN, type ChainType, CONFIG, getEnv, HL_CHAIN, OPT_CHAIN, type WalletBalances} from './config.js'; // Важно: в ESM нужно указывать .js
 import {getWalletBalances, sleep} from './utils/utils.js';
 import {initializeWallet, wallets} from "./utils/loadWallet.js";
 import {MoonwellPosition} from "./classes/MoonwellPosition.js";
@@ -50,8 +50,12 @@ async function main() {
     const hlPosition = new HLPosition(HL_CHAIN, getProvider(HL_CHAIN));
 
     const positions: Record<ChainType, Position[]> = {
-        OPT: [moonwellPosition],
-        BASE: [morphoPosition],
+        OPT: [
+             // moonwellPosition // Позиция закрыта
+        ],
+        BASE: [
+             morphoPosition // Пока не анализируем
+        ],
         HL: [hlPosition]
     };
 
@@ -73,8 +77,6 @@ async function main() {
                         continue;
                     }
 
-                    // if (chain !== OPT_CHAIN) continue;
-
                     const data = await position.getRecommend();
                     console.log(data, data.loop ?? {}, data.deloop ?? {});
 
@@ -91,6 +93,8 @@ async function main() {
 
                         if (entries.length > 0) {
                             [borrowedToken, supplyAmount] = entries[0]!;
+                        } else if (data.deloop.supply) {
+                            supplyAmount = 1; // Фейковое значение для HL
                         }
                     } else if (data.loop) {
                         console.log("Получены данные для лупа:", data.loop);
@@ -98,6 +102,8 @@ async function main() {
 
                         if (entries.length > 0) {
                             [borrowedToken, borrowAmount] = entries[0]!;
+                        } else if (data.loop.supply) {
+                            borrowAmount = 1; // Фейковое значение для HL
                         }
                     } else {
                         console.log("Данные отсутствуют или произошла ошибка (вернулся пустой объект)");
@@ -124,7 +130,7 @@ async function main() {
             }
         }
 
-        if (cycles >= maxCycles) break;
+        if (getEnv('ENV') !== 'DEV' && cycles >= maxCycles) break;
         await sleep(30000);
     }
 

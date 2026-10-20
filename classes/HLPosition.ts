@@ -237,18 +237,57 @@ export class HLPosition extends Position {
         }
 
         const incompleteOrders: string[] = [];
+
         statuses.forEach((status, index) => {
-            const {coin, action} = orderIntents[index]!;
+            const { coin, action, isBuy } = orderIntents[index]!;
+
             if (typeof status !== "object" || status === null || !("filled" in status)) {
                 incompleteOrders.push(`${coin}: ${JSON.stringify(status)}`);
                 return;
             }
-            console.log(`HL order: ${action} ${status.filled.totalSz} ${coin} at ${status.filled.avgPx} USDC`);
+
+            const filledSz = Number(status.filled.totalSz);
+            const avgPx = Number(status.filled.avgPx);
+            const totalValue = filledSz * avgPx; // Объем сделки в USDC
+
+            // 1. Расчет комиссии (0.045% для Taker)
+            const takerFeePercent = 0.00045;
+            const feePaidUsdc = totalValue * takerFeePercent;
+
+            // 2. Расчет потерь от отклонения цены от MID (Slippage/Spread Loss)
+            const midPrice = Number(mids[coin]);
+            let slippageLossUsdc = 0;
+            let slippagePercent = 0;
+
+            if (Number.isFinite(midPrice) && midPrice > 0) {
+                // Если купили дороже mid или продали дешевле mid — это наши потери
+                const priceDiff = avgPx - midPrice;
+
+                // Для лонга потеря — если avgPx > mid. Для шорта — если avgPx < mid.
+                const lossPerUnit = isBuy ? priceDiff : -priceDiff;
+
+                slippageLossUsdc = lossPerUnit * filledSz;
+                slippagePercent = (lossPerUnit / midPrice) * 100;
+            }
+
+            const totalOrderLoss = feePaidUsdc + Math.max(0, slippageLossUsdc);
+
+            // Вывод детальной метрики в консоль
+            console.log(`==================================================`);
+            console.log(`🔔 HL СДЕЛКА ИСПОЛНЕНА: ${action.toUpperCase()} ${filledSz} ${coin}`);
+            console.log(`   ├─ Цена исполнения: ${avgPx} USDC (Mid цена: ${midPrice} USDC)`);
+            console.log(`   ├─ Общий объем:     ${totalValue.toFixed(4)} USDC`);
+            console.log(`   ├─ 💸 Комиссия (Taker 0.045%):  ${feePaidUsdc.toFixed(6)} USDC`);
+            console.log(`   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`);
+            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${totalOrderLoss.toFixed(6)} USDC (${Math.abs((totalOrderLoss-totalValue)/totalValue)}%)`);
+            console.log(`==================================================`);
+
             const requestedSize = Number(orders[index]!.s);
-            if (Number(status.filled.totalSz) < requestedSize) {
+            if (filledSz < requestedSize) {
                 incompleteOrders.push(`${coin}: filled ${status.filled.totalSz} of ${orders[index]!.s}`);
             }
         });
+
         if (incompleteOrders.length > 0) {
             throw new Error(`Hyperliquid orders were not fully filled: ${incompleteOrders.join("; ")}`);
         }

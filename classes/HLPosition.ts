@@ -53,6 +53,7 @@ type PreparedPerpetualOrder = {
     assetId: number;
     sizeDecimals: number;
     requestedSize: number;
+    midPrice: number;
     cloid: `0x${string}`;
     makerOrder: {
         a: number;
@@ -80,6 +81,15 @@ type MakerOrderSnapshot = {
     status: string;
     originalSize: string;
     remainingSize: string;
+};
+
+type OrderFillSummary = {
+    size: number;
+    averagePrice: number;
+    totalValue: number;
+    fee: number;
+    feeToken: string;
+    liquidityRole: string;
 };
 
 async function getMakerOrderSnapshot(
@@ -126,24 +136,53 @@ async function getMakerOrderSnapshot(
     throw new Error(`Hyperliquid returned unknown order ${String(orderId)}`);
 }
 
-async function getMakerFilledSizeFromTrades(
+async function getOrderFillSummary(
     info: InfoClient,
     user: string,
     orderId: number,
     coin: string,
     startTime: number
-): Promise<number> {
+): Promise<OrderFillSummary | undefined> {
     const fills = await withRetry(() => info.userFillsByTime({
         user,
         startTime,
         endTime: Date.now(),
     }));
     const orderFills = fills.filter(fill => fill.oid === orderId && fill.coin === coin);
-    const sizes = orderFills.map(fill => Number(fill.sz));
-    if (sizes.some(size => !Number.isFinite(size) || size < 0)) {
-        throw new Error(`Hyperliquid returned invalid fill sizes for ${coin} order ${orderId}`);
+    if (orderFills.length === 0) {
+        return undefined;
     }
-    return sizes.reduce((total, size) => total + size, 0);
+
+    const fillValues = orderFills.map(fill => ({
+        size: Number(fill.sz),
+        price: Number(fill.px),
+        fee: Number(fill.fee),
+    }));
+    if (fillValues.some(fill =>
+        !Number.isFinite(fill.size) || fill.size <= 0
+        || !Number.isFinite(fill.price) || fill.price <= 0
+        || !Number.isFinite(fill.fee))) {
+        throw new Error(`Hyperliquid returned invalid fill details for ${coin} order ${orderId}`);
+    }
+
+    const feeTokens = new Set(orderFills.map(fill => fill.feeToken));
+    if (feeTokens.size !== 1) {
+        throw new Error(`Hyperliquid returned multiple fee tokens for ${coin} order ${orderId}`);
+    }
+
+    const size = fillValues.reduce((total, fill) => total + fill.size, 0);
+    const totalValue = fillValues.reduce((total, fill) => total + fill.size * fill.price, 0);
+    const crossedValues = new Set(orderFills.map(fill => fill.crossed));
+    return {
+        size,
+        averagePrice: totalValue / size,
+        totalValue,
+        fee: fillValues.reduce((total, fill) => total + fill.fee, 0),
+        feeToken: orderFills[0]!.feeToken,
+        liquidityRole: crossedValues.size > 1
+            ? "Mixed maker/taker"
+            : orderFills[0]!.crossed ? "Taker" : "Maker",
+    };
 }
 
 function getFilledOrderSize(status: MakerOrderSnapshot, requestedSize: number): number {
@@ -158,6 +197,58 @@ function getFilledOrderSize(status: MakerOrderSnapshot, requestedSize: number): 
         throw new Error("Hyperliquid returned invalid perpetual order size data");
     }
     return Math.min(requestedSize, Math.max(0, originalSize - remainingSize));
+}
+
+function logExecutionReport({
+    action,
+    coin,
+    size,
+    averagePrice,
+    midPrice,
+    isBuy,
+    totalValue,
+    fee,
+    feeToken,
+    liquidityRole,
+}: {
+    action: string;
+    coin: string;
+    size: number;
+    averagePrice: number;
+    midPrice: number;
+    isBuy: boolean;
+    totalValue: number;
+    fee?: number;
+    feeToken?: string;
+    liquidityRole: string;
+}): void {
+    const lossPerUnit = isBuy ? averagePrice - midPrice : midPrice - averagePrice;
+    const slippageLossUsdc = lossPerUnit * size;
+    const slippagePercent = lossPerUnit / midPrice * 100;
+    const totalOrderLoss = fee === undefined
+        ? undefined
+        : fee + Math.max(0, slippageLossUsdc);
+
+    console.log("==================================================");
+    console.log(`🔔 HL СДЕЛКА ИСПОЛНЕНА: ${action.toUpperCase()} ${size} ${coin}`);
+    console.log(`   ├─ Цена исполнения: ${averagePrice} USDC (Mid цена: ${midPrice} USDC)`);
+    console.log(`   ├─ Общий объем:     ${totalValue.toFixed(4)} USDC`);
+    if (fee !== undefined && feeToken !== undefined) {
+        console.log(`   ├─ 💸 Комиссия (${liquidityRole}, биржевые fills): ${fee.toFixed(6)} ${feeToken}`);
+    } else {
+        console.log(`   ├─ 💸 Комиссия (${liquidityRole}): недоступна из данных fills`);
+    }
+    console.log(
+        `   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`
+    );
+    if (totalOrderLoss !== undefined) {
+        console.log(
+            `   └─ 🛑 ИТОГО ИЗДЕРЖКИ НА ВХОДЕ: ${totalOrderLoss.toFixed(6)} USDC (${(totalOrderLoss / totalValue * 100).toFixed(4)}%)`
+        );
+    } else {
+        console.log("   └─ 🛑 ИТОГО ИЗДЕРЖКИ НА ВХОДЕ: комиссия не подтверждена");
+    }
+    console.log("==================================================");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -321,7 +412,7 @@ export class HLPosition extends Position {
             withRetry(() => info.allMids()),
             withRetry(() => SymbolConverter.create({transport})),
         ]);
-        const preparedOrders: PreparedPerpetualOrder[] = orderIntents.map(intent => {
+        const preparedOrders: PreparedPerpetualOrder[] = await Promise.all(orderIntents.map(async intent => {
             const {coin, size, isBuy, reduceOnly} = intent;
             const assetId = converter.getAssetId(coin);
             const sizeDecimals = converter.getSzDecimals(coin);
@@ -333,7 +424,24 @@ export class HLPosition extends Position {
                 throw new Error(`Missing or invalid Hyperliquid mid price for ${coin}`);
             }
 
-            const makerPrice = mid * (isBuy ? 1.0001 : 0.9998);
+            const book = await withRetry(() => info.l2Book({coin}));
+            if (!book) {
+                throw new Error(`Hyperliquid returned no order book for ${coin}`);
+            }
+            const bestBid = book.levels[0][0];
+            const bestAsk = book.levels[1][0];
+            if (!bestBid || !bestAsk) {
+                throw new Error(`Hyperliquid order book is missing best bid or ask for ${coin}`);
+            }
+            const bestBidPrice = Number(bestBid.px);
+            const bestAskPrice = Number(bestAsk.px);
+            if (!Number.isFinite(bestBidPrice) || bestBidPrice <= 0
+                || !Number.isFinite(bestAskPrice) || bestAskPrice <= 0
+                || bestBidPrice > bestAskPrice) {
+                throw new Error(`Hyperliquid returned an invalid best bid/ask for ${coin}`);
+            }
+
+            const makerPrice = isBuy ? bestBid.px : bestAsk.px;
             const makerSize = formatSize(size, sizeDecimals);
             const requestedSize = Number(makerSize);
             if (!Number.isFinite(requestedSize) || requestedSize <= 0) {
@@ -344,25 +452,26 @@ export class HLPosition extends Position {
             const makerOrder: PreparedPerpetualOrder["makerOrder"] = {
                 a: assetId,
                 b: isBuy,
-                p: formatPrice(makerPrice, sizeDecimals),
+                p: makerPrice,
                 s: makerSize,
                 r: reduceOnly,
                 t: {limit: {tif: "Alo"}},
                 c: cloid,
             };
             console.log(
-                `[HL maker] Prepared ${coin} ${isBuy ? "BUY" : "SELL"} ${makerSize} @ ${makerOrder.p}; mid=${mid}; offset=${isBuy ? "+0.01%" : "-0.02%"}; cloid=${cloid}; reduceOnly=${reduceOnly}`
+                `[HL maker] Prepared ${coin} ${isBuy ? "BUY" : "SELL"} ${makerSize} @ ${makerOrder.p}; bestBid=${bestBid.px}; bestAsk=${bestAsk.px}; mid=${mid}; cloid=${cloid}; reduceOnly=${reduceOnly}`
             );
             return {
                 intent,
                 assetId,
                 sizeDecimals,
                 requestedSize,
+                midPrice: mid,
                 cloid,
                 makerOrder,
                 submittedAt: Date.now(),
             };
-        });
+        }));
 
         const exchange = new ExchangeClient({transport, wallet});
         console.log(`[HL maker] Submitting ${preparedOrders.length} ALO order(s) in parallel`);
@@ -490,26 +599,54 @@ export class HLPosition extends Position {
                     console.log(`[HL maker] ${coin} maker order rejected; full size ${remainingSize} goes to IOC`);
                 }
 
-                if (makerOrderId !== undefined && remainingSize > 0
-                    && (submission.makerWasFilled || submission.makerRejected === false)) {
-                    const actualFilledSize = await getMakerFilledSizeFromTrades(
+                if (makerOrderId !== undefined && !submission.makerRejected) {
+                    const makerFillSummary = await getOrderFillSummary(
                         info,
                         address,
                         makerOrderId,
                         coin,
                         submittedAt
                     );
+                    const actualFilledSize = makerFillSummary?.size ?? 0;
                     if (!Number.isFinite(actualFilledSize) || actualFilledSize < 0
                         || actualFilledSize > requestedSize) {
                         throw new Error(`Invalid maker fill reconciliation for ${coin}: ${actualFilledSize}`);
                     }
-                    if (actualFilledSize !== filledSize) {
+                    if (actualFilledSize > 0 && actualFilledSize !== filledSize) {
                         console.log(
                             `[HL maker] ${coin} fill sources differ: status=${filledSize}, userFills=${actualFilledSize}; using the larger confirmed fill`
                         );
                     }
                     filledSize = Math.max(filledSize, actualFilledSize);
                     remainingSize = Math.max(0, requestedSize - filledSize);
+
+                    if (filledSize > 0) {
+                        if (makerFillSummary && makerFillSummary.size !== filledSize) {
+                            console.warn(
+                                `[HL maker] ${coin} userFills report ${makerFillSummary.size} filled, while order status confirms ${filledSize}`
+                            );
+                        }
+                        const reportSize = makerFillSummary?.size || filledSize;
+                        const reportPrice = makerFillSummary?.averagePrice
+                            ?? Number(preparedOrder.makerOrder.p);
+                        const reportValue = makerFillSummary?.totalValue
+                            ?? reportSize * reportPrice;
+                        logExecutionReport({
+                            action,
+                            coin,
+                            size: reportSize,
+                            averagePrice: reportPrice,
+                            midPrice: preparedOrder.midPrice,
+                            isBuy,
+                            totalValue: reportValue,
+                            liquidityRole: makerFillSummary?.liquidityRole
+                                ?? "Maker (ALO; fills not yet indexed)",
+                            ...(makerFillSummary ? {
+                                fee: makerFillSummary.fee,
+                                feeToken: makerFillSummary.feeToken,
+                            } : {}),
+                        });
+                    }
                 }
 
                 if (remainingSize <= 0) {

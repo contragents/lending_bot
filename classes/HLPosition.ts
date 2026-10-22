@@ -96,7 +96,7 @@ async function getMakerOrderSnapshot(
     info: InfoClient,
     user: string,
     orderId: number | `0x${string}`
-): Promise<MakerOrderSnapshot> {
+): Promise<MakerOrderSnapshot | undefined> {
     const currentStatus = await withRetry(() => info.orderStatus({user, oid: orderId}));
     if (currentStatus.status === "order") {
         return {
@@ -133,7 +133,7 @@ async function getMakerOrderSnapshot(
         };
     }
 
-    throw new Error(`Hyperliquid returned unknown order ${String(orderId)}`);
+    return undefined;
 }
 
 async function getOrderFillSummary(
@@ -565,12 +565,50 @@ export class HLPosition extends Position {
                 if (submission.error) {
                     console.log(`[HL maker] Resolving ${coin} uncertain submission via cloid=${cloid}`);
                     makerSnapshot = await getMakerOrderSnapshot(info, address, cloid);
+                    if (!makerSnapshot) {
+                        throw new Error(
+                            `Could not resolve uncertain ${coin} maker submission by cloid; IOC blocked`
+                        );
+                    }
                     makerOrderId = makerSnapshot.orderId;
                 } else if (!submission.makerRejected && !submission.makerWasFilled) {
                     if (makerOrderId === undefined) {
                         throw new Error(`Missing order ID for accepted ${coin} ALO order`);
                     }
                     makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
+                }
+
+                let makerFillSummary: OrderFillSummary | undefined;
+                if (makerOrderId !== undefined && !makerSnapshot && !submission.makerRejected) {
+                    console.warn(
+                        `[HL maker] ${coin} oid=${makerOrderId} is missing from status/history/open orders; reconciling fills before fallback`
+                    );
+                    const fillTolerance = Math.max(1e-12, 10 ** -sizeDecimals / 2);
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        makerFillSummary = await getOrderFillSummary(
+                            info,
+                            address,
+                            makerOrderId,
+                            coin,
+                            submittedAt
+                        );
+                        if ((makerFillSummary?.size ?? 0) >= requestedSize - fillTolerance) {
+                            break;
+                        }
+                        if (attempt < 2) {
+                            await sleep(1_000);
+                            makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
+                            if (makerSnapshot) {
+                                break;
+                            }
+                        }
+                    }
+                    if (!makerSnapshot
+                        && (makerFillSummary?.size ?? 0) < requestedSize - fillTolerance) {
+                        throw new Error(
+                            `Could not safely verify ${coin} maker order ${makerOrderId}: status is unknown and fills do not confirm the full requested size; IOC blocked`
+                        );
+                    }
                 }
 
                 if (makerSnapshot) {
@@ -583,24 +621,27 @@ export class HLPosition extends Position {
                         await withRetry(() => exchange.cancel({
                             cancels: [{a: assetId, o: makerOrderId!}],
                         }));
+                        makerFillSummary = undefined;
                         const openOrders = await withRetry(() => info.frontendOpenOrders({user: address}));
                         if (openOrders.some(order => order.oid === makerOrderId)) {
                             throw new Error(`Maker order for ${coin} is still open after cancellation; IOC blocked`);
                         }
                         makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
-                        if (makerSnapshot.status === "open" || makerSnapshot.status === "triggered") {
+                        if (makerSnapshot?.status === "open" || makerSnapshot?.status === "triggered") {
                             throw new Error(`Maker order for ${coin} remains active after cancellation; IOC blocked`);
                         }
                     }
-                    filledSize = getFilledOrderSize(makerSnapshot, requestedSize);
-                    remainingSize = Math.max(0, requestedSize - filledSize);
+                    if (makerSnapshot) {
+                        filledSize = getFilledOrderSize(makerSnapshot, requestedSize);
+                        remainingSize = Math.max(0, requestedSize - filledSize);
+                    }
                 }
                 if (submission.makerRejected) {
                     console.log(`[HL maker] ${coin} maker order rejected; full size ${remainingSize} goes to IOC`);
                 }
 
                 if (makerOrderId !== undefined && !submission.makerRejected) {
-                    const makerFillSummary = await getOrderFillSummary(
+                    makerFillSummary ??= await getOrderFillSummary(
                         info,
                         address,
                         makerOrderId,

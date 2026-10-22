@@ -9,6 +9,7 @@ import {sleep, withRetry} from "../utils/utils.js";
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 const MAKER_ORDER_WAIT_MS = 7_000;
 const IOC_SLIPPAGE = 0.01;
+const ORDER_CANCEL_BATCH_SIZE = 50;
 const SUPPORTED_CHAINS: readonly ChainType[] = [HL_CHAIN];
 
 type HyperliquidPositionData = {
@@ -91,6 +92,69 @@ type OrderFillSummary = {
     feeToken: string;
     liquidityRole: string;
 };
+
+async function cancelOpenOrdersForCoins(
+    info: InfoClient,
+    exchange: ExchangeClient,
+    user: string,
+    coins: string[],
+    getAssetId: (coin: string) => number | undefined
+): Promise<void> {
+    const targetCoins = new Set(coins.map(coin => coin.toUpperCase()));
+    const cancellationErrors: Error[] = [];
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        const openOrders = await withRetry(() => info.frontendOpenOrders({user}));
+        const matchingOrders = openOrders.filter(order => targetCoins.has(order.coin.toUpperCase()));
+        if (matchingOrders.length === 0) {
+            console.log(`[HL cleanup] No open orders remain for ${[...targetCoins].join(", ")}`);
+            return;
+        }
+
+        const cancels = matchingOrders.map(order => {
+            const assetId = getAssetId(order.coin);
+            if (assetId === undefined) {
+                throw new Error(`Cannot resolve asset ID for open ${order.coin} order ${order.oid}`);
+            }
+            return {a: assetId, o: order.oid};
+        });
+        console.log(
+            `[HL cleanup] Cancellation attempt ${attempt}/3 for ${cancels.length} open order(s): ${[...targetCoins].join(", ")}`
+        );
+
+        for (let offset = 0; offset < cancels.length; offset += ORDER_CANCEL_BATCH_SIZE) {
+            const cancellationBatch = cancels.slice(offset, offset + ORDER_CANCEL_BATCH_SIZE);
+            try {
+                const result = await withRetry(() => exchange.cancel({cancels: cancellationBatch}));
+                const statuses = result.response.data.statuses;
+                if (statuses.length !== cancellationBatch.length) {
+                    cancellationErrors.push(new Error(
+                        `Hyperliquid returned ${statuses.length} cancellation statuses for ${cancellationBatch.length} orders`
+                    ));
+                }
+            } catch (error) {
+                const cancellationError = error instanceof Error ? error : new Error(String(error));
+                cancellationErrors.push(cancellationError);
+                console.error("[HL cleanup] Cancellation request failed; checking remaining open orders", error);
+            }
+        }
+        await sleep(500);
+    }
+
+    const remainingOrders = (await withRetry(() => info.frontendOpenOrders({user})))
+        .filter(order => targetCoins.has(order.coin.toUpperCase()));
+    if (remainingOrders.length > 0) {
+        const remainingDescription = remainingOrders
+            .map(order => `${order.coin} oid=${order.oid}`)
+            .join(", ");
+        throw new AggregateError(
+            [...cancellationErrors, new Error(`Open orders remain after cleanup: ${remainingDescription}`)],
+            `Failed to cancel all open Hyperliquid orders for ${[...targetCoins].join(", ")}`
+        );
+    }
+
+    console.log(`[HL cleanup] All open orders canceled for ${[...targetCoins].join(", ")}`);
+}
 
 async function getMakerOrderSnapshot(
     info: InfoClient,
@@ -408,10 +472,13 @@ export class HLPosition extends Position {
             }
         }
 
-        const [mids, converter] = await Promise.all([
-            withRetry(() => info.allMids()),
-            withRetry(() => SymbolConverter.create({transport})),
-        ]);
+        const converter = await withRetry(() => SymbolConverter.create({transport}));
+        const exchange = new ExchangeClient({transport, wallet});
+        let executionFailed = false;
+        let executionError: unknown;
+
+        try {
+        const mids = await withRetry(() => info.allMids());
         const preparedOrders: PreparedPerpetualOrder[] = await Promise.all(orderIntents.map(async intent => {
             const {coin, size, isBuy, reduceOnly} = intent;
             const assetId = converter.getAssetId(coin);
@@ -473,7 +540,6 @@ export class HLPosition extends Position {
             };
         }));
 
-        const exchange = new ExchangeClient({transport, wallet});
         console.log(`[HL maker] Submitting ${preparedOrders.length} ALO order(s) in parallel`);
         const makerSubmissions: MakerSubmission[] = await Promise.all(preparedOrders.map(async preparedOrder => {
             const {intent, makerOrder, requestedSize, cloid} = preparedOrder;
@@ -758,6 +824,32 @@ export class HLPosition extends Position {
             throw new AggregateError(errors, "One or more Hyperliquid perpetual orders failed");
         }
         console.log(`[HL orders] All ${orderIntents.length} perpetual order(s) completed successfully`);
+        } catch (error) {
+            executionFailed = true;
+            executionError = error;
+        }
+
+        try {
+            await cancelOpenOrdersForCoins(
+                info,
+                exchange,
+                address,
+                orderIntents.map(({coin}) => coin),
+                coin => converter.getAssetId(coin)
+            );
+        } catch (cleanupError) {
+            if (executionFailed) {
+                throw new AggregateError(
+                    [executionError, cleanupError],
+                    "Perpetual order processing and open-order cleanup both failed"
+                );
+            }
+            throw cleanupError;
+        }
+
+        if (executionFailed) {
+            throw executionError;
+        }
     }
 
     async getPosition(): Promise<boolean> {

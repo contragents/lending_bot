@@ -4,9 +4,11 @@ import {Position} from "./Position.js";
 import type {LendingLeverageInstruction} from "../utils/invest_legal/recommend.js";
 import {ExchangeClient, HttpTransport, InfoClient} from "@nktkas/hyperliquid";
 import {formatPrice, formatSize, SymbolConverter} from "@nktkas/hyperliquid/utils";
-import {withRetry} from "../utils/utils.js";
+import {sleep, withRetry} from "../utils/utils.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+const MAKER_ORDER_WAIT_MS = 7_000;
+const IOC_SLIPPAGE = 0.01;
 const SUPPORTED_CHAINS: readonly ChainType[] = [HL_CHAIN];
 
 type HyperliquidPositionData = {
@@ -45,6 +47,27 @@ type PerpetualOrderIntent = {
     reduceOnly: boolean;
     action: string;
 };
+
+function getFilledOrderSize(
+    status: Awaited<ReturnType<InfoClient["orderStatus"]>>,
+    requestedSize: number
+): number {
+    if (status.status !== "order") {
+        throw new Error("Hyperliquid could not find the submitted perpetual order");
+    }
+    if (status.order.status === "filled") {
+        return requestedSize;
+    }
+
+    const originalSize = Number(status.order.order.origSz);
+    const remainingSize = Number(status.order.order.sz);
+    if (!Number.isFinite(originalSize) || !Number.isFinite(remainingSize)
+        || originalSize < 0 || remainingSize < 0 || remainingSize > originalSize) {
+        throw new Error("Hyperliquid returned invalid perpetual order size data");
+    }
+
+    return Math.min(requestedSize, Math.max(0, originalSize - remainingSize));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
@@ -207,7 +230,10 @@ export class HLPosition extends Position {
             withRetry(() => info.allMids()),
             withRetry(() => SymbolConverter.create({transport})),
         ]);
-        const orders = orderIntents.map(({coin, size, isBuy, reduceOnly}) => {
+        const exchange = new ExchangeClient({transport, wallet});
+
+        for (const intent of orderIntents) {
+            const {coin, size, isBuy, reduceOnly, action} = intent;
             const assetId = converter.getAssetId(coin);
             const sizeDecimals = converter.getSzDecimals(coin);
             const mid = Number(mids[coin]);
@@ -218,78 +244,192 @@ export class HLPosition extends Position {
                 throw new Error(`Missing or invalid Hyperliquid mid price for ${coin}`);
             }
 
-            return {
+            const makerSize = formatSize(size, sizeDecimals);
+            const requestedSize = Number(makerSize);
+            if (!Number.isFinite(requestedSize) || requestedSize <= 0) {
+                throw new Error(`Hyperliquid order size for ${coin} is below exchange precision`);
+            }
+
+            const cloid = ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`;
+            const makerOrder = {
                 a: assetId,
                 b: isBuy,
-                p: formatPrice(mid * (isBuy ? 1.01 : 0.99), sizeDecimals),
-                s: formatSize(size, sizeDecimals),
+                p: formatPrice(mid, sizeDecimals),
+                s: makerSize,
+                r: reduceOnly,
+                t: {limit: {tif: "Gtc" as const}},
+                c: cloid,
+            };
+
+            const cancelMakerOrder = () => withRetry(() => exchange.cancelByCloid({
+                cancels: [{asset: assetId, cloid}],
+            }));
+            let makerResult;
+            try {
+                makerResult = await withRetry(() => exchange.order({
+                    orders: [makerOrder],
+                    grouping: "na",
+                }));
+            } catch (error) {
+                try {
+                    await cancelMakerOrder();
+                } catch (cancelError) {
+                    throw new AggregateError(
+                        [error, cancelError],
+                        `Maker order submission and cancellation failed for ${coin}; no IOC order was submitted`
+                    );
+                }
+                throw new Error(
+                    `Maker order submission failed for ${coin}; cancellation was requested and no IOC order was submitted`,
+                    {cause: error}
+                );
+            }
+
+            const makerStatuses = makerResult.response.data.statuses;
+            if (makerStatuses.length !== 1) {
+                try {
+                    await cancelMakerOrder();
+                } catch (cancelError) {
+                    throw new Error(
+                        `Hyperliquid returned ${makerStatuses.length} maker statuses for ${coin}; cancellation also failed: ${String(cancelError)}`,
+                        {cause: cancelError}
+                    );
+                }
+                throw new Error(
+                    `Hyperliquid returned ${makerStatuses.length} maker statuses for ${coin}; cancellation was requested and no IOC order was submitted`
+                );
+            }
+
+            const makerStatus = makerStatuses[0]!;
+            let remainingSize = requestedSize;
+
+            if (typeof makerStatus === "object" && makerStatus !== null && "error" in makerStatus) {
+                console.error(`Hyperliquid maker order rejected for ${coin}: ${makerStatus.error}`);
+            } else {
+                await sleep(MAKER_ORDER_WAIT_MS);
+
+                let orderStatus: Awaited<ReturnType<InfoClient["orderStatus"]>>;
+                try {
+                    orderStatus = await withRetry(() => info.orderStatus({user: address, oid: cloid}));
+                } catch (error) {
+                    try {
+                        await cancelMakerOrder();
+                    } catch (cancelError) {
+                        throw new AggregateError(
+                            [error, cancelError],
+                            `Could not verify or cancel maker order for ${coin}; no IOC order was submitted`
+                        );
+                    }
+                    throw new Error(
+                        `Could not verify maker order for ${coin}; cancellation was requested and no IOC order was submitted`,
+                        {cause: error}
+                    );
+                }
+
+                if (orderStatus.status === "unknownOid") {
+                    try {
+                        await cancelMakerOrder();
+                    } catch (cancelError) {
+                        throw new AggregateError(
+                            [new Error(`Hyperliquid returned unknownOid for maker order ${coin}`), cancelError],
+                            `Could not confirm or cancel maker order for ${coin}; no IOC order was submitted`
+                        );
+                    }
+                    throw new Error(
+                        `Hyperliquid returned unknownOid for maker order ${coin}; cancellation was requested and no IOC order was submitted`
+                    );
+                }
+
+                if (orderStatus.order.status === "open" || orderStatus.order.status === "triggered") {
+                    const cancelResult = await cancelMakerOrder();
+                    const cancelStatus = cancelResult.response.data.statuses[0];
+                    if (cancelStatus === undefined) {
+                        throw new Error(`Hyperliquid returned no cancellation status for ${coin}; no IOC order was submitted`);
+                    }
+
+                    const finalStatus = await withRetry(() => info.orderStatus({user: address, oid: cloid}));
+                    if (finalStatus.status === "unknownOid") {
+                        throw new Error(`Hyperliquid returned unknownOid after canceling maker order for ${coin}; no IOC order was submitted`);
+                    }
+                    if (finalStatus.order.status === "open" || finalStatus.order.status === "triggered") {
+                        throw new Error(
+                            `Maker order for ${coin} remains open after cancellation; no IOC order was submitted`
+                        );
+                    }
+                    orderStatus = finalStatus;
+                }
+
+                const filledSize = getFilledOrderSize(orderStatus, requestedSize);
+                remainingSize = Math.max(0, requestedSize - filledSize);
+                console.log(`Hyperliquid maker order ${coin}: filled ${filledSize} of ${requestedSize}`);
+            }
+
+            if (remainingSize === 0) {
+                continue;
+            }
+
+            const fallbackMid = Number((await withRetry(() => info.allMids()))[coin]);
+            if (!Number.isFinite(fallbackMid) || fallbackMid <= 0) {
+                throw new Error(`Missing or invalid Hyperliquid mid price for ${coin} IOC fallback`);
+            }
+
+            const fallbackSize = formatSize(remainingSize, sizeDecimals);
+            if (Number(fallbackSize) <= 0) {
+                throw new Error(`IOC fallback size for ${coin} is below Hyperliquid size precision`);
+            }
+
+            const fallbackOrder = {
+                a: assetId,
+                b: isBuy,
+                p: formatPrice(fallbackMid * (isBuy ? 1 + IOC_SLIPPAGE : 1 - IOC_SLIPPAGE), sizeDecimals),
+                s: fallbackSize,
                 r: reduceOnly,
                 t: {limit: {tif: "Ioc" as const}},
                 c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
             };
-        });
-
-        const exchange = new ExchangeClient({transport, wallet});
-        const result = await withRetry(() => exchange.order({orders, grouping: "na"}));
-        const statuses = result.response.data.statuses;
-        if (statuses.length !== orders.length) {
-            throw new Error(`Hyperliquid returned ${statuses.length} order statuses for ${orders.length} orders`);
-        }
-
-        const incompleteOrders: string[] = [];
-
-        statuses.forEach((status, index) => {
-            const { coin, action, isBuy } = orderIntents[index]!;
-
-            if (typeof status !== "object" || status === null || !("filled" in status)) {
-                incompleteOrders.push(`${coin}: ${JSON.stringify(status)}`);
-                return;
+            const fallbackResult = await withRetry(() => exchange.order({
+                orders: [fallbackOrder],
+                grouping: "na",
+            }));
+            const fallbackStatuses = fallbackResult.response.data.statuses;
+            if (fallbackStatuses.length !== 1) {
+                throw new Error(
+                    `Hyperliquid returned ${fallbackStatuses.length} IOC statuses for ${coin} fallback`
+                );
             }
 
-            const filledSz = Number(status.filled.totalSz);
-            const avgPx = Number(status.filled.avgPx);
-            const totalValue = filledSz * avgPx; // Объем сделки в USDC
-
-            // 1. Расчет комиссии (0.045% для Taker)
-            const takerFeePercent = 0.00045;
-            const feePaidUsdc = totalValue * takerFeePercent;
-
-            // 2. Расчет потерь от отклонения цены от MID (Slippage/Spread Loss)
-            const midPrice = Number(mids[coin]);
-            let slippageLossUsdc = 0;
-            let slippagePercent = 0;
-
-            if (Number.isFinite(midPrice) && midPrice > 0) {
-                // Если купили дороже mid или продали дешевле mid — это наши потери
-                const priceDiff = avgPx - midPrice;
-
-                // Для лонга потеря — если avgPx > mid. Для шорта — если avgPx < mid.
-                const lossPerUnit = isBuy ? priceDiff : -priceDiff;
-
-                slippageLossUsdc = lossPerUnit * filledSz;
-                slippagePercent = (lossPerUnit / midPrice) * 100;
+            const fallbackStatus = fallbackStatuses[0]!;
+            if (typeof fallbackStatus !== "object" || fallbackStatus === null || !("filled" in fallbackStatus)) {
+                throw new Error(`Hyperliquid IOC fallback for ${coin} was not filled: ${JSON.stringify(fallbackStatus)}`);
             }
 
+            const filledSize = Number(fallbackStatus.filled.totalSz);
+            const avgPrice = Number(fallbackStatus.filled.avgPx);
+            if (!Number.isFinite(filledSize) || !Number.isFinite(avgPrice) || filledSize <= 0 || avgPrice <= 0) {
+                throw new Error(`Hyperliquid returned invalid IOC fill data for ${coin}`);
+            }
+            if (filledSize < Number(fallbackSize)) {
+                throw new Error(
+                    `Hyperliquid IOC fallback for ${coin} was only partially filled: ${filledSize} of ${fallbackSize}`
+                );
+            }
+
+            const totalValue = filledSize * avgPrice;
+            const feePaidUsdc = totalValue * 0.00045;
+            const priceDiff = avgPrice - fallbackMid;
+            const lossPerUnit = isBuy ? priceDiff : -priceDiff;
+            const slippageLossUsdc = lossPerUnit * filledSize;
+            const slippagePercent = (lossPerUnit / fallbackMid) * 100;
             const totalOrderLoss = feePaidUsdc + Math.max(0, slippageLossUsdc);
 
-            // Вывод детальной метрики в консоль
             console.log(`==================================================`);
-            console.log(`🔔 HL СДЕЛКА ИСПОЛНЕНА: ${action.toUpperCase()} ${filledSz} ${coin}`);
-            console.log(`   ├─ Цена исполнения: ${avgPx} USDC (Mid цена: ${midPrice} USDC)`);
+            console.log(`🔔 HL СДЕЛКА ИСПОЛНЕНА: ${action.toUpperCase()} ${filledSize} ${coin}`);
+            console.log(`   ├─ Цена исполнения: ${avgPrice} USDC (Mid цена: ${fallbackMid} USDC)`);
             console.log(`   ├─ Общий объем:     ${totalValue.toFixed(4)} USDC`);
             console.log(`   ├─ 💸 Комиссия (Taker 0.045%):  ${feePaidUsdc.toFixed(6)} USDC`);
             console.log(`   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`);
-            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${totalOrderLoss.toFixed(6)} USDC (${Math.abs(1-(totalOrderLoss-totalValue)/totalValue)*100}%)`);
+            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${Math.abs(1 - (totalOrderLoss - totalValue) / totalValue) * 100}%)`);
             console.log(`==================================================`);
-
-            const requestedSize = Number(orders[index]!.s);
-            if (filledSz < requestedSize) {
-                incompleteOrders.push(`${coin}: filled ${status.filled.totalSz} of ${orders[index]!.s}`);
-            }
-        });
-
-        if (incompleteOrders.length > 0) {
-            throw new Error(`Hyperliquid orders were not fully filled: ${incompleteOrders.join("; ")}`);
         }
     }
 

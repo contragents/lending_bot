@@ -279,7 +279,7 @@ export class HLPosition extends Position {
             console.log(`   ├─ Общий объем:     ${totalValue.toFixed(4)} USDC`);
             console.log(`   ├─ 💸 Комиссия (Taker 0.045%):  ${feePaidUsdc.toFixed(6)} USDC`);
             console.log(`   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`);
-            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${totalOrderLoss.toFixed(6)} USDC (${Math.abs((totalOrderLoss-totalValue)/totalValue)}%)`);
+            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${totalOrderLoss.toFixed(6)} USDC (${Math.abs(1-(totalOrderLoss-totalValue)/totalValue)*100}%)`);
             console.log(`==================================================`);
 
             const requestedSize = Number(orders[index]!.s);

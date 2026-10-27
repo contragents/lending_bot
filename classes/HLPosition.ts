@@ -8,6 +8,7 @@ import {sleep, withRetry} from "../utils/utils.js";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 const MAKER_ORDER_WAIT_MS = 7_000;
+const MAKER_FILL_LOOKBACK_MS = 60_000;
 const IOC_SLIPPAGE = 0.01;
 const ORDER_CANCEL_BATCH_SIZE = 50;
 const SUPPORTED_CHAINS: readonly ChainType[] = [HL_CHAIN];
@@ -159,7 +160,8 @@ async function cancelOpenOrdersForCoins(
 async function getMakerOrderSnapshot(
     info: InfoClient,
     user: string,
-    orderId: number | `0x${string}`
+    orderId: number | `0x${string}`,
+    startTime: number
 ): Promise<MakerOrderSnapshot | undefined> {
     const currentStatus = await withRetry(() => info.orderStatus({user, oid: orderId}));
     if (currentStatus.status === "order") {
@@ -172,9 +174,18 @@ async function getMakerOrderSnapshot(
     }
 
     const [historicalOrders, openOrders] = await Promise.all([
-        withRetry(() => info.historicalOrders({user})),
-        withRetry(() => info.frontendOpenOrders({user})),
+        withRetry(() => info.historicalOrders({
+            user: WATCH_ADDRESS,
+            startTime: Math.max(0, startTime - MAKER_FILL_LOOKBACK_MS)
+        })),
+        withRetry(() => info.frontendOpenOrders({
+            user: WATCH_ADDRESS,
+            startTime: Math.max(0, startTime - MAKER_FILL_LOOKBACK_MS)
+        })),
     ]);
+
+    console.log('History orders:', historicalOrders, 'Open orders:', openOrders);
+
     const matchesOrder = (order: { oid: number; cloid?: `0x${string}` | null }) =>
         typeof orderId === "number" ? order.oid === orderId : order.cloid === orderId;
     const historicalOrder = historicalOrders.find(({order}) => matchesOrder(order));
@@ -209,10 +220,15 @@ async function getOrderFillSummary(
 ): Promise<OrderFillSummary | undefined> {
     const fills = await withRetry(() => info.userFillsByTime({
         user,
-        startTime,
+        startTime: Math.max(0, startTime - MAKER_FILL_LOOKBACK_MS),
         endTime: Date.now(),
     }));
-    const orderFills = fills.filter(fill => fill.oid === orderId && fill.coin === coin);
+
+    let orderFills = fills.filter(fill => fill.oid === orderId && fill.coin === coin);
+    if (orderFills.length === 0) {
+        const recentFills = await withRetry(() => info.userFills({user}));
+        orderFills = recentFills.filter(fill => fill.oid === orderId && fill.coin === coin);
+    }
     if (orderFills.length === 0) {
         return undefined;
     }
@@ -655,6 +671,7 @@ export class HLPosition extends Position {
                 const {preparedOrder} = submission;
                 const {intent, assetId, sizeDecimals, requestedSize, cloid, submittedAt} = preparedOrder;
                 const {coin, isBuy, reduceOnly, action} = intent;
+
                 try {
                     let filledSize = submission.makerFilledSize;
                     let makerOrderId = submission.makerOrderId;
@@ -663,7 +680,7 @@ export class HLPosition extends Position {
 
                     if (submission.error) {
                         console.log(`[HL maker] Resolving ${coin} uncertain submission via cloid=${cloid}`);
-                        makerSnapshot = await getMakerOrderSnapshot(info, address, cloid);
+                        makerSnapshot = await getMakerOrderSnapshot(info, address, cloid, submittedAt);
                         if (!makerSnapshot) {
                             throw new Error(
                                 `Could not resolve uncertain ${coin} maker submission by cloid; IOC blocked`
@@ -674,7 +691,7 @@ export class HLPosition extends Position {
                         if (makerOrderId === undefined) {
                             throw new Error(`Missing order ID for accepted ${coin} ALO order`);
                         }
-                        makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
+                        makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
                     }
 
                     let makerFillSummary: OrderFillSummary | undefined;
@@ -696,7 +713,7 @@ export class HLPosition extends Position {
                             }
                             if (attempt < 2) {
                                 await sleep(1_000);
-                                makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
+                                makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
                                 if (makerSnapshot) {
                                     break;
                                 }
@@ -704,16 +721,16 @@ export class HLPosition extends Position {
                         }
 
                         const actualFilledSize = makerFillSummary?.size ?? 0;
+
                         // ИСПРАВЛЕНИЕ ХИТРОЙ ЛОВУШКИ:
                         if (!makerSnapshot && actualFilledSize >= requestedSize - fillTolerance) {
-                            // ЕСЛИ ОРДЕРА НЕТ В СТАКАНЕ, НО ОН ПОЛНОСТЬЮ НАЙДЕН В ИСТОРИИ СДЕЛОК (FILLS) - ЭТО УСПЕХ!
-                            console.log(`[HL maker] ${coin} не найден в стакане, но успешно подтвержден в Fills на полный объем.`);
+                            console.log(`[HL maker] ${coin} not found in order history; full fill confirmed by user fills. Processing finished`);
                             filledSize = actualFilledSize;
                             remainingSize = 0;
                         } else if (!makerSnapshot && actualFilledSize === 0) {
-                            // Ордера нет ни в стакане, ни в сделках — только тогда выкидываем ошибку
+                            // Ордер не найден ни в стакане, ни в сделках - прерываем его обработку для избежания двойного исполнения
                             throw new Error(
-                                `Could not safely verify ${coin} maker order ${makerOrderId}: ордер исчез и сделок по нему нет.`
+                                `Could not safely verify ${coin} maker order ${makerOrderId}: Aborting processing`
                             );
                         }
                     }
@@ -733,7 +750,7 @@ export class HLPosition extends Position {
                             if (openOrders.some(order => order.oid === makerOrderId)) {
                                 throw new Error(`Maker order for ${coin} is still open after cancellation; IOC blocked`);
                             }
-                            makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
+                            makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
                             if (makerSnapshot?.status === "open" || makerSnapshot?.status === "triggered") {
                                 throw new Error(`Maker order for ${coin} remains active after cancellation; IOC blocked`);
                             }
@@ -853,18 +870,20 @@ export class HLPosition extends Position {
                     console.log(`   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`);
                     console.log(`   └─ 🛑 ИТОГО ИЗДЕРЖКИ НА ВХОДЕ: ${totalOrderLoss.toFixed(6)} USDC (${(totalOrderLoss / totalValue * 100).toFixed(4)}%)`);
                     console.log("==================================================");
+
                     return undefined;
                 } catch (error) {
-                    console.error(`[HL orders] Processing failed for ${coin}:`, error);
+                    console.error(`[HL orders] Processing failed for ${coin}:`, (error as any).message ?? String(error));
 
-                    return new Error(`Perpetual order processing failed for ${coin}`, {cause: error});
+                    return coin;
                 }
             }));
 
-            const errors = orderResults.filter((result): result is Error => result !== undefined);
+            const errors = orderResults.filter((result) => result !== undefined);
             if (errors.length > 0) {
                 throw new AggregateError(errors, "One or more Hyperliquid perpetual orders failed");
             }
+
             console.log(`[HL orders] All ${orderIntents.length} perpetual order(s) completed successfully`);
         } catch (error) {
             executionFailed = true;

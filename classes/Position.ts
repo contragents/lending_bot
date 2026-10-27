@@ -71,7 +71,7 @@ export abstract class Position {
      * @param amount количество токена для подлупки
      * @param loop Массив Токен-количество
      */
-    async loop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
+    async loop(amount: number, instruction: LendingLeverageInstruction, step: number): Promise<void> {
         console.log(`${this.constructor.name} does not support looping`);
     }
 
@@ -79,7 +79,7 @@ export abstract class Position {
      * @param amount количество токена для разлупки
      * @param deloop Массив Токен-количество
      */
-    async deLoop(amount: number, instruction: LendingLeverageInstruction): Promise<void> {
+    async deLoop(amount: number, instruction: LendingLeverageInstruction, step: number): Promise<void> {
         console.log(`${this.constructor.name} does not support de-looping`);
     }
 

@@ -13,6 +13,8 @@ interface LendingSuccessResponse {
 
         deloop?: LendingLeverageInstruction;
         loop?: LendingLeverageInstruction;
+        leverage?: number;
+        step?: number;
     };
 }
 
@@ -31,6 +33,9 @@ export interface LendingLeverageInstruction {
 export interface LendingLeverageResult {
     deloop?: LendingLeverageInstruction;
     loop?: LendingLeverageInstruction;
+
+    leverage?: number;
+    step?: number;
 }
 
 /**
@@ -66,6 +71,9 @@ export async function fetchLendingInstruction(lendingId: number): Promise<Lendin
         // Наполняем возвращаемый объект только теми полями, которые пришли от сервера
         if (rawData.deloop) result.deloop = rawData.deloop;
         else if (rawData.loop) result.loop = rawData.loop;
+
+        if (rawData.leverage) result.leverage = rawData.leverage;
+        if (rawData.step) result.step = rawData.step;
 
         return result;
     } catch (error) {

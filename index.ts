@@ -114,9 +114,9 @@ async function main() {
 
 
                     if (borrowAmount && data.loop) {
-                        await position.loop(borrowAmount, data.loop);
+                        await position.loop(borrowAmount, data.loop, data.step ?? 1);
                     } else if (supplyAmount && data.deloop) {
-                        await position.deLoop(supplyAmount, data.deloop);
+                        await position.deLoop(supplyAmount, data.deloop, data.step ?? 1);
                     }
 
 

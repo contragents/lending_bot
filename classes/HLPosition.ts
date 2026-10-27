@@ -379,10 +379,11 @@ export class HLPosition extends Position {
     protected positionLoaded = false;
 
     /**
-     * @param amount количество токена для разлупки
+     * @param amount Количество токена для разлупки
      * @param loop Массив Токен-количество
+     * @param step Шаг подлупки
      */
-    async loop(amount: number, loop: LendingLeverageInstruction): Promise<void> {
+    async loop(amount: number, loop: LendingLeverageInstruction, step: number): Promise<void> {
         const borrowEntries = Object.entries(loop.borrow ?? {})
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
         const supplyEntries = Object.entries(loop.supply ?? {})
@@ -408,10 +409,11 @@ export class HLPosition extends Position {
     }
 
     /**
-     * @param amount количество токена для разлупки
+     * @param amount Количество токена для разлупки
      * @param deloop Массив Токен-количество
+     * @param step Шаг разлупки
      */
-    async deLoop(amount: number, deloop: LendingLeverageInstruction): Promise<void> {
+    async deLoop(amount: number, deloop: LendingLeverageInstruction, step: number): Promise<void> {
         const borrowEntries = Object.entries(deloop.borrow ?? {})
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
         const supplyEntries = Object.entries(deloop.supply ?? {})
@@ -438,7 +440,8 @@ export class HLPosition extends Position {
 
     private async placePerpetualOrders(
         orderIntents: PerpetualOrderIntent[],
-        emptyMessage: string
+        emptyMessage: string,
+        makerOnly: boolean = false
     ): Promise<void> {
         if (orderIntents.length === 0) {
             console.log(emptyMessage);
@@ -494,8 +497,10 @@ export class HLPosition extends Position {
 
                 if (size < minStep) {
                     console.log(`[HL dust filter] Игнорируем ${coin}: объем ${size} меньше минимального шага биржи (${minStep})`);
+
                     return false;
                 }
+
                 return true;
             });
 

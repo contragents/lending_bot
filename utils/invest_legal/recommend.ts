@@ -41,7 +41,7 @@ export interface LendingLeverageResult {
  */
 export async function fetchLendingInstruction(lendingId: number): Promise<LendingLeverageResult> {
     const url = `https://invest.legal/lending/recommend?lending_id=${lendingId}`
-        + (getEnv('ENV') === 'DEV' ? '&force_looping=yes' : '');
+        + (getEnv('ENV') === 'DEV' ? '&force_looping=yes' : ''); // Режим теста для сделок
 
     try {
         const response = await axios.get<LendingApiResponse>(url);

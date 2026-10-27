@@ -883,7 +883,7 @@ export class HLPosition extends Position {
             }
             throw cleanupError;
         } finally {
-            await this.cancelAllOpenOrders(info,exchange,WATCH_ADDRESS,converter, myCoinsForCleanup);
+            await this.cancelAllOpenOrders(info, exchange, WATCH_ADDRESS, converter, myCoinsForCleanup);
         }
 
         if (executionFailed) {

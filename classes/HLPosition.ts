@@ -160,8 +160,7 @@ async function cancelOpenOrdersForCoins(
 async function getMakerOrderSnapshot(
     info: InfoClient,
     user: string,
-    orderId: number | `0x${string}`,
-    startTime: number
+    orderId: number | `0x${string}`
 ): Promise<MakerOrderSnapshot | undefined> {
     const currentStatus = await withRetry(() => info.orderStatus({user, oid: orderId}));
     if (currentStatus.status === "order") {
@@ -432,25 +431,172 @@ export class HLPosition extends Position {
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
         console.log("HL deloop: closing shorts", borrowEntries, "closing longs", supplyEntries);
 
-        await this.placePerpetualOrders([
-                ...borrowEntries.map(([coin, size]) => ({
-                    coin,
-                    size,
-                    isBuy: true,
-                    reduceOnly: true,
-                    action: "closed short",
-                })),
-                ...supplyEntries.map(([coin, size]) => ({
-                    coin,
-                    size,
-                    isBuy: false,
-                    reduceOnly: true,
-                    action: "closed long",
-                })),
-            ],
-            "HL deloop: no perpetual orders to place",
-            step === 1
-        );
+        if (step === 5) // Выполняем Maker-ордера, т.к. step слишком высокий
+            await this.placePerpetualOrdersMaker([
+                    ...borrowEntries.map(([coin, size]) => ({
+                        coin,
+                        size,
+                        isBuy: true,
+                        reduceOnly: true,
+                        action: "closed short",
+                    })),
+                    ...supplyEntries.map(([coin, size]) => ({
+                        coin,
+                        size,
+                        isBuy: false,
+                        reduceOnly: true,
+                        action: "closed long",
+                    })),
+                ],
+                "HL (TAKER): no perpetual orders to place"
+            );
+
+        else // Выполняем ордера по схеме Maker->Taker
+            await this.placePerpetualOrders([
+                    ...borrowEntries.map(([coin, size]) => ({
+                        coin,
+                        size,
+                        isBuy: true,
+                        reduceOnly: true,
+                        action: "closed short",
+                    })),
+                    ...supplyEntries.map(([coin, size]) => ({
+                        coin,
+                        size,
+                        isBuy: false,
+                        reduceOnly: true,
+                        action: "closed long",
+                    })),
+                ],
+                "HL MAKER: no perpetual orders to place",
+                step === 1
+            );
+    }
+
+    private async placePerpetualOrdersMaker(
+        orderIntents: PerpetualOrderIntent[],
+        emptyMessage: string
+    ): Promise<void> {
+        if (orderIntents.length === 0) {
+            console.log(emptyMessage);
+            return;
+        }
+
+        for (const {coin, size} of orderIntents) {
+            if (!coin.trim()) {
+                throw new Error("Hyperliquid order contains an empty coin symbol");
+            }
+            if (!Number.isFinite(size) || size <= 0) {
+                throw new Error(`Invalid Hyperliquid order size for ${coin}: ${size}`);
+            }
+        }
+
+        const privateKey = getEnv("HYPER_KEY");
+        const address = ethers.getAddress(getEnv("HYPER_ADDRESS"));
+        const wallet = new ethers.Wallet(privateKey);
+        const transport = new HttpTransport();
+        const info = new InfoClient({transport});
+
+        if (wallet.address.toLowerCase() !== address.toLowerCase()) {
+            const agents = await withRetry(() => info.extraAgents({user: address}));
+            const isAuthorizedAgent = agents.some(agent =>
+                agent.address.toLowerCase() === wallet.address.toLowerCase()
+                && (agent.validUntil === null || agent.validUntil > Date.now()));
+            if (!isAuthorizedAgent) {
+                throw new Error(
+                    `HYPER_KEY address ${wallet.address} is neither HYPER_ADDRESS nor its active API agent`
+                );
+            }
+        }
+
+        const [mids, converter] = await Promise.all([
+            withRetry(() => info.allMids()),
+            withRetry(() => SymbolConverter.create({transport})),
+        ]);
+        const orders = orderIntents.map(({coin, size, isBuy, reduceOnly}) => {
+            const assetId = converter.getAssetId(coin);
+            const sizeDecimals = converter.getSzDecimals(coin);
+            const mid = Number(mids[coin]);
+            if (assetId === undefined || sizeDecimals === undefined) {
+                throw new Error(`Unknown Hyperliquid perpetual asset: ${coin}`);
+            }
+            if (!Number.isFinite(mid) || mid <= 0) {
+                throw new Error(`Missing or invalid Hyperliquid mid price for ${coin}`);
+            }
+
+            return {
+                a: assetId,
+                b: isBuy,
+                p: formatPrice(mid * (isBuy ? 1.01 : 0.99), sizeDecimals),
+                s: formatSize(size, sizeDecimals),
+                r: reduceOnly,
+                t: {limit: {tif: "Ioc" as const}},
+                c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
+            };
+        });
+
+        const exchange = new ExchangeClient({transport, wallet});
+        const result = await withRetry(() => exchange.order({orders, grouping: "na"}));
+        const statuses = result.response.data.statuses;
+        if (statuses.length !== orders.length) {
+            throw new Error(`Hyperliquid returned ${statuses.length} order statuses for ${orders.length} orders`);
+        }
+
+        const incompleteOrders: string[] = [];
+
+        statuses.forEach((status, index) => {
+            const {coin, action, isBuy} = orderIntents[index]!;
+
+            if (typeof status !== "object" || status === null || !("filled" in status)) {
+                incompleteOrders.push(`${coin}: ${JSON.stringify(status)}`);
+                return;
+            }
+
+            const filledSz = Number(status.filled.totalSz);
+            const avgPx = Number(status.filled.avgPx);
+            const totalValue = filledSz * avgPx; // Объем сделки в USDC
+
+            // 1. Расчет комиссии (0.045% для Taker)
+            const takerFeePercent = 0.00045;
+            const feePaidUsdc = totalValue * takerFeePercent;
+
+            // 2. Расчет потерь от отклонения цены от MID (Slippage/Spread Loss)
+            const midPrice = Number(mids[coin]);
+            let slippageLossUsdc = 0;
+            let slippagePercent = 0;
+
+            if (Number.isFinite(midPrice) && midPrice > 0) {
+                // Если купили дороже mid или продали дешевле mid — это наши потери
+                const priceDiff = avgPx - midPrice;
+
+                // Для лонга потеря — если avgPx > mid. Для шорта — если avgPx < mid.
+                const lossPerUnit = isBuy ? priceDiff : -priceDiff;
+
+                slippageLossUsdc = lossPerUnit * filledSz;
+                slippagePercent = (lossPerUnit / midPrice) * 100;
+            }
+
+            const totalOrderLoss = feePaidUsdc + Math.max(0, slippageLossUsdc);
+
+            // Вывод детальной метрики в консоль
+            console.log(`==================================================`);
+            console.log(`🔔 HL СДЕЛКА ИСПОЛНЕНА: ${action.toUpperCase()} ${filledSz} ${coin}`);
+            console.log(`   ├─ Цена исполнения: ${avgPx} USDC (Mid цена: ${midPrice} USDC)`);
+            console.log(`   ├─ Общий объем:     ${totalValue.toFixed(4)} USDC`);
+            console.log(`   ├─ 💸 Комиссия (Taker 0.045%):  ${feePaidUsdc.toFixed(6)} USDC`);
+            console.log(`   ├─ 📉 Потери от проскальзывания: ${Math.max(0, slippageLossUsdc).toFixed(6)} USDC (${slippagePercent.toFixed(4)}%)`);
+            console.log(`   └─ 🛑 ИТОГО ПОТЕРЬ НА ВХОДЕ:    ${totalOrderLoss.toFixed(6)} USDC (${Math.abs(1 - (totalOrderLoss - totalValue) / totalValue) * 100}%)`);
+            console.log(`==================================================`);
+
+            const requestedSize = Number(orders[index]!.s);
+            if (filledSz < requestedSize) {
+                incompleteOrders.push(`${coin}: filled ${status.filled.totalSz} of ${orders[index]!.s}`);
+            }
+        });
+
+        if (incompleteOrders.length > 0) {
+            throw new Error(`Hyperliquid orders were not fully filled: ${incompleteOrders.join("; ")}`);
+        }
     }
 
     private async placePerpetualOrders(
@@ -556,7 +702,23 @@ export class HLPosition extends Position {
                     throw new Error(`Hyperliquid returned an invalid best bid/ask for ${coin}`);
                 }
 
-                const makerPrice = isBuy ? bestBid.px : bestAsk.px;
+                const midForMakerPrice = (bestAskPrice + bestBidPrice) / 2;
+
+                // Расчет Maker-цены
+                // 1. Округляем mid-цену заранее, чтобы понять, какой она станет на бирже
+                const roundedMid = Number(formatPrice(midForMakerPrice, sizeDecimals));
+
+                // 2. Проверяем, есть ли место внутри спреда с учетом округления
+                // Место есть, если округленный mid строго больше бида и строго меньше аска
+                const hasSpaceInsideSpread = roundedMid > bestBidPrice && roundedMid < bestAskPrice;
+
+                // 3. Выставляем цену на основе условия
+                const targetPriceRaw = isBuy
+                    ? (hasSpaceInsideSpread ? midForMakerPrice : bestBidPrice)
+                    : (hasSpaceInsideSpread ? midForMakerPrice : bestAskPrice);
+
+                const makerPrice = formatPrice(targetPriceRaw, sizeDecimals);
+
                 const makerSize = formatSize(size, sizeDecimals);
                 const requestedSize = Number(makerSize);
                 if (!Number.isFinite(requestedSize) || requestedSize <= 0) {
@@ -679,7 +841,7 @@ export class HLPosition extends Position {
 
                     if (submission.error) {
                         console.log(`[HL maker] Resolving ${coin} uncertain submission via cloid=${cloid}`);
-                        makerSnapshot = await getMakerOrderSnapshot(info, address, cloid, submittedAt);
+                        makerSnapshot = await getMakerOrderSnapshot(info, address, cloid);
                         if (!makerSnapshot) {
                             throw new Error(
                                 `Could not resolve uncertain ${coin} maker submission by cloid; IOC blocked`
@@ -690,7 +852,7 @@ export class HLPosition extends Position {
                         if (makerOrderId === undefined) {
                             throw new Error(`Missing order ID for accepted ${coin} ALO order`);
                         }
-                        makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
+                        makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
                     }
 
                     let makerFillSummary: OrderFillSummary | undefined;
@@ -712,7 +874,7 @@ export class HLPosition extends Position {
                             }
                             if (attempt < 2) {
                                 await sleep(1_000);
-                                makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
+                                makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
                                 if (makerSnapshot) {
                                     break;
                                 }
@@ -749,7 +911,7 @@ export class HLPosition extends Position {
                             if (openOrders.some(order => order.oid === makerOrderId)) {
                                 throw new Error(`Maker order for ${coin} is still open after cancellation; IOC blocked`);
                             }
-                            makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId, submittedAt);
+                            makerSnapshot = await getMakerOrderSnapshot(info, address, makerOrderId);
                             if (makerSnapshot?.status === "open" || makerSnapshot?.status === "triggered") {
                                 throw new Error(`Maker order for ${coin} remains active after cancellation; IOC blocked`);
                             }
@@ -815,6 +977,13 @@ export class HLPosition extends Position {
 
                     if (remainingSize <= 0) {
                         console.log(`[HL orders] ${coin} fully completed by ALO; IOC not needed`);
+
+                        return undefined;
+                    }
+
+                    if (makerOnly) {
+                        console.log(`[HL orders] ${coin} aborting processing - only MAKER orders allowed now`);
+
                         return undefined;
                     }
 

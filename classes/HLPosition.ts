@@ -174,17 +174,11 @@ async function getMakerOrderSnapshot(
     }
 
     const [historicalOrders, openOrders] = await Promise.all([
-        withRetry(() => info.historicalOrders({
-            user: WATCH_ADDRESS,
-            startTime: Math.max(0, startTime - MAKER_FILL_LOOKBACK_MS)
-        })),
-        withRetry(() => info.frontendOpenOrders({
-            user: WATCH_ADDRESS,
-            startTime: Math.max(0, startTime - MAKER_FILL_LOOKBACK_MS)
-        })),
+        withRetry(() => info.historicalOrders({user: WATCH_ADDRESS})),
+        withRetry(() => info.frontendOpenOrders({user: WATCH_ADDRESS})),
     ]);
 
-    console.log('History orders:', historicalOrders, 'Open orders:', openOrders);
+    console.log('Open orders found:', openOrders.length);
 
     const matchesOrder = (order: { oid: number; cloid?: `0x${string}` | null }) =>
         typeof orderId === "number" ? order.oid === orderId : order.cloid === orderId;
@@ -407,21 +401,23 @@ export class HLPosition extends Position {
         console.log("Borrows", borrowEntries, "Supplys", supplyEntries);
 
         await this.placePerpetualOrders([
-            ...borrowEntries.map(([coin, size]) => ({
-                coin,
-                size,
-                isBuy: false,
-                reduceOnly: false,
-                action: "opened short",
-            })),
-            ...supplyEntries.map(([coin, size]) => ({
-                coin,
-                size,
-                isBuy: true,
-                reduceOnly: false,
-                action: "opened long",
-            })),
-        ], "HL loop: no perpetual orders to place");
+                ...borrowEntries.map(([coin, size]) => ({
+                    coin,
+                    size,
+                    isBuy: false,
+                    reduceOnly: false,
+                    action: "opened short",
+                })),
+                ...supplyEntries.map(([coin, size]) => ({
+                    coin,
+                    size,
+                    isBuy: true,
+                    reduceOnly: false,
+                    action: "opened long",
+                })),
+            ],
+            "HL loop: no perpetual orders to place",
+            step === 1);
     }
 
     /**
@@ -437,21 +433,24 @@ export class HLPosition extends Position {
         console.log("HL deloop: closing shorts", borrowEntries, "closing longs", supplyEntries);
 
         await this.placePerpetualOrders([
-            ...borrowEntries.map(([coin, size]) => ({
-                coin,
-                size,
-                isBuy: true,
-                reduceOnly: true,
-                action: "closed short",
-            })),
-            ...supplyEntries.map(([coin, size]) => ({
-                coin,
-                size,
-                isBuy: false,
-                reduceOnly: true,
-                action: "closed long",
-            })),
-        ], "HL deloop: no perpetual orders to place");
+                ...borrowEntries.map(([coin, size]) => ({
+                    coin,
+                    size,
+                    isBuy: true,
+                    reduceOnly: true,
+                    action: "closed short",
+                })),
+                ...supplyEntries.map(([coin, size]) => ({
+                    coin,
+                    size,
+                    isBuy: false,
+                    reduceOnly: true,
+                    action: "closed long",
+                })),
+            ],
+            "HL deloop: no perpetual orders to place",
+            step === 1
+        );
     }
 
     private async placePerpetualOrders(

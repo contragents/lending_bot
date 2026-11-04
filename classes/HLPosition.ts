@@ -431,7 +431,7 @@ export class HLPosition extends Position {
             .filter(([coin]) => !coin.trim().toUpperCase().startsWith("USD"));
         console.log("HL deloop: closing shorts", borrowEntries, "closing longs", supplyEntries);
 
-        if (step === 5) // Выполняем Maker-ордера, т.к. step слишком высокий
+        if (step === 5) // Выполняем Taker-ордера, т.к. step слишком высокий
             await this.placePerpetualOrdersMaker([
                     ...borrowEntries.map(([coin, size]) => ({
                         coin,
@@ -528,7 +528,7 @@ export class HLPosition extends Position {
                 a: assetId,
                 b: isBuy,
                 p: formatPrice(mid * (isBuy ? 1.01 : 0.99), sizeDecimals),
-                s: formatSize(size, sizeDecimals),
+                s: formatSize(size / 2, sizeDecimals), // #LB-15 уменьшаем размер Taker-заявки в 2 раза для минимизации потерь от паники на рынке
                 r: reduceOnly,
                 t: {limit: {tif: "Ioc" as const}},
                 c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
@@ -815,6 +815,7 @@ export class HLPosition extends Position {
                         };
                     }
                     console.error(`[HL maker] ${intent.coin} ALO submission outcome is uncertain; will reconcile by cloid`, error);
+
                     return {
                         preparedOrder,
                         makerRejected: false,
@@ -992,7 +993,9 @@ export class HLPosition extends Position {
                     if (!Number.isFinite(midPrice) || midPrice <= 0) {
                         throw new Error(`Missing or invalid fresh mid for ${coin} IOC fallback`);
                     }
-                    const iocSize = formatSize(remainingSize, sizeDecimals);
+
+                    // #LB-15 уменьшаем размер Taker-заявки в 2 раза для минимизации потерь от паники на рынке
+                    const iocSize = formatSize(remainingSize / 2, sizeDecimals);
                     const iocOrder = {
                         a: assetId,
                         b: isBuy,

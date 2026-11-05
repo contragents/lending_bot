@@ -96,7 +96,9 @@ async function main() {
                         } else if (data.deloop.supply) {
                             supplyAmount = 1; // Фейковое значение для HL
                         }
-                    } else if (data.loop) {
+                    }
+
+                    if (data.loop) {
                         console.log("Получены данные для лупа:", data.loop);
                         const entries = Object.entries(data.loop.borrow ?? {});
 
@@ -105,7 +107,9 @@ async function main() {
                         } else if (data.loop.supply) {
                             borrowAmount = 1; // Фейковое значение для HL
                         }
-                    } else {
+                    }
+
+                    if(!data.deloop && !data.loop) {
                         console.log("Данные отсутствуют или произошла ошибка (вернулся пустой объект)");
                     }
 
@@ -115,7 +119,9 @@ async function main() {
 
                     if (borrowAmount && data.loop) {
                         await position.loop(borrowAmount, data.loop, data.step ?? 1);
-                    } else if (supplyAmount && data.deloop) {
+                    }
+
+                    if (supplyAmount && data.deloop) {
                         await position.deLoop(supplyAmount, data.deloop, data.step ?? 1);
                     }
 

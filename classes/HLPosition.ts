@@ -814,6 +814,7 @@ export class HLPosition extends Position {
                             makerFilledSize: 0,
                         };
                     }
+
                     console.error(`[HL maker] ${intent.coin} ALO submission outcome is uncertain; will reconcile by cloid`, error);
 
                     return {

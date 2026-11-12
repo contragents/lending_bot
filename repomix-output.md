@@ -227,6 +227,38 @@ amountHuman: number               // Сколько токенов хотим в
 // Верификация по нативному хэшу события RepayBorrow
 ```
 
+## File: utils/moonwell/supplyMoonwellAsset.ts
+```typescript
+import {CONFIG, getMoonwellMarkets, MOONWELL_MARKETS, OPT_CHAIN, type ChainType, type SupportedToken} from "../../config.js";
+import {ethers} from "ethers";
+import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
+import {wallets} from "../loadWallet.js";
+⋮----
+export async function supplyMoonwellAsset(
+	chain: ChainType,
+	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
+	amountHuman: number               // Сколько токенов вносим в человеческом формате
+): Promise<boolean>
+⋮----
+underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
+amountHuman: number               // Сколько токенов вносим в человеческом формате
+⋮----
+// Проверяем, авторизован ли кошелек
+⋮----
+// todo отдельные методы для ETH и других
+// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
+⋮----
+// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был BASE/Moonbeam) =================
+⋮----
+// todo отдельные методы для ETH и других
+⋮----
+// ================= ВАРИАНТ 2: ERC-20 ТОКЕНЫ (USDC, OP, WETH) =================
+⋮----
+// todo отдельные методы для ETH и других
+⋮----
+const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
+```
+
 ## File: utils/invest_legal/recommend.ts
 ```typescript
 import axios from "axios";
@@ -286,38 +318,6 @@ export async function fetchLendingInstruction(lendingId: number): Promise<Lendin
 // Наполняем возвращаемый объект только теми полями, которые пришли от сервера
 ⋮----
 // 3. Обработка сетевых ошибок (404, 500, таймауты)
-```
-
-## File: utils/moonwell/supplyMoonwellAsset.ts
-```typescript
-import {CONFIG, getMoonwellMarkets, MOONWELL_MARKETS, OPT_CHAIN, type ChainType, type SupportedToken} from "../../config.js";
-import {ethers} from "ethers";
-import {reportErrorGasSpent, reportGasSpent} from "../utils.js";
-import {wallets} from "../loadWallet.js";
-⋮----
-export async function supplyMoonwellAsset(
-	chain: ChainType,
-	underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
-	amountHuman: number               // Сколько токенов вносим в человеческом формате
-): Promise<boolean>
-⋮----
-underlyingSymbol: SupportedToken, // Что вносим в залог ('USDC', 'OP', 'ETH', 'WETH')
-amountHuman: number               // Сколько токенов вносим в человеческом формате
-⋮----
-// Проверяем, авторизован ли кошелек
-⋮----
-// todo отдельные методы для ETH и других
-// ABI для нативного роутера Moonwell (метод mint с указанием получателя)
-⋮----
-// ================= ВАРИАНТ 1: НАСТОЯЩИЙ НАТИВНЫЙ ETH (Если бы это был BASE/Moonbeam) =================
-⋮----
-// todo отдельные методы для ETH и других
-⋮----
-// ================= ВАРИАНТ 2: ERC-20 ТОКЕНЫ (USDC, OP, WETH) =================
-⋮----
-// todo отдельные методы для ETH и других
-⋮----
-const txMint = await mTokenContract.mint(supplyAmountWei, {gasLimit: 500000}); // Подняли до 500k
 ```
 
 ## File: utils/moonwell/withdrawMoonwellAsset.ts
@@ -610,7 +610,7 @@ export abstract class Position {
 constructor(
         protected readonly chain: ChainType,
         protected readonly provider: ethers.JsonRpcProvider
-)
+    )
 ⋮----
 // Достаем статическое свойство из текущего класса-наследника
 ⋮----
@@ -719,6 +719,97 @@ activeSigner.address  // Конечный получатель нативног�
 gasLimit: 350000 // Лимит с запасом, OPT спишет копейки по факту
 ```
 
+## File: config.ts
+```typescript
+import {ethers, getAddress} from 'ethers';
+⋮----
+// Функция-помощник для проверки обязательных переменных
+export const getEnv = (key: string): string =>
+⋮----
+// Задаем список всех поддерживаемых токенов
+export type SupportedToken = 'USDC' | 'OP' | 'ETH' | 'WETH' | 'cbBTC' | 'MAMO' | 'WELL';
+⋮----
+// Описываем структуру для токенов в конкретной сети
+type TokenList = {
+    [K in SupportedToken]?: string;
+};
+⋮----
+// Создаем список сетей в рантайме
+⋮----
+export type ChainType = typeof CHAIN_NAMES[number];
+⋮----
+// Описываем структуру Moonwell
+interface MoonwellConfig {
+    COMPTROLLER: string;
+}
+⋮----
+// Общий интерфейс для настроек конкретной сети
+interface NetworkSettings {
+    ID: string;
+    RPC_URL: string;
+    TOKENS: TokenList;
+    MOONWELL?: MoonwellConfig;
+}
+⋮----
+// Типизируем весь конфиг
+interface AppConfig {
+    TOKEN_DECIMALS:
+    // Делаем все токены из списка необязательными (через знак ?)
+        { [K in SupportedToken]?: number } &
+        // И жестко требуем наличие поля default
+        { default: number } &
+        // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
+        { [key: string]: number };
+    ZEROX_API_KEY: string;
+    NETWORKS: {
+        [key in ChainType]: NetworkSettings;
+    };
+    ABI: {
+        MOONWELL: string[];
+        UNISWAP: string[];
+        ORACLE: string[];
+        UNISWAP_ROUTER: string[];
+        ERC20_BALANCE_ABI: string[];
+        MORPHO: string[];
+    };
+}
+⋮----
+// Делаем все токены из списка необязательными (через знак ?)
+⋮----
+// И жестко требуем наличие поля default
+⋮----
+// Разрешаем ЛЮБОЙ другой строковый ключ со значением number
+⋮----
+RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
+⋮----
+RPC_URL: 'https://mainnet.base.org', //https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
+⋮----
+// Добавляем ABI для самих mToken контрактов
+⋮----
+"function borrow(uint256 borrowAmount) external", // borrow
+"function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
+"function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
+⋮----
+// Нам нужен стандартный минимальный ABI для работы с ERC-20 токенами
+⋮----
+// Параметры для API
+⋮----
+EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
+EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
+OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
+⋮----
+// Настройки
+⋮----
+export function getMoonwellMarkets(chain: ChainType)
+⋮----
+export interface WalletBalances {
+    [tokenSymbol: string]: {
+        wei: bigint;
+        human: number;
+    };
+}
+```
+
 ## File: classes/HLPosition.ts
 ```typescript
 import {HL_CHAIN, type ChainType, WATCH_ADDRESS, getEnv} from "../config.js";
@@ -824,7 +915,7 @@ async function getMakerOrderSnapshot(
     orderId: number | `0x${string}`
 ): Promise<MakerOrderSnapshot | undefined>
 ⋮----
-const matchesOrder = (order:
+const matchesOrder = (order: { oid: number; cloid?: `0x${string}` | null }) =>
 ⋮----
 async function getOrderFillSummary(
     info: InfoClient,
@@ -888,11 +979,34 @@ async loop(amount: number, loop: LendingLeverageInstruction, step: number): Prom
      */
 async deLoop(amount: number, deloop: LendingLeverageInstruction, step: number): Promise<void>
 ⋮----
+if (step === 5) // Выполняем Taker-ордера, т.к. step слишком высокий
+⋮----
+else // Выполняем ордера по схеме Maker->Taker
+⋮----
+private async placePerpetualOrdersMaker(
+        orderIntents: PerpetualOrderIntent[],
+        emptyMessage: string
+    ): Promise<void>
+⋮----
+s: formatSize(size / 2, sizeDecimals), // #LB-15 уменьшаем размер Taker-заявки в 2 раза для минимизации потерь от паники на рынке
+⋮----
+const totalValue = filledSz * avgPx; // Объем сделки в USDC
+⋮----
+// 1. Расчет комиссии (0.045% для Taker)
+⋮----
+// 2. Расчет потерь от отклонения цены от MID (Slippage/Spread Loss)
+⋮----
+// Если купили дороже mid или продали дешевле mid — это наши потери
+⋮----
+// Для лонга потеря — если avgPx > mid. Для шорта — если avgPx < mid.
+⋮----
+// Вывод детальной метрики в консоль
+⋮----
 private async placePerpetualOrders(
         orderIntents: PerpetualOrderIntent[],
         emptyMessage: string,
         makerOnly: boolean = false
-): Promise<void>
+    ): Promise<void>
 ⋮----
 // 🔥 ФИЛЬТР ПЫЛИ: Оставляем только ордера, проходящие по точности биржи
 ⋮----
@@ -904,11 +1018,19 @@ if (sizeDecimals === undefined) return true; // Пропустим, ошибку
 ⋮----
 // Передаем в Promise.all только отфильтрованный массив validIntents
 ⋮----
+// Расчет Maker-цены
+// 1. Округляем mid-цену заранее, чтобы понять, какой она станет на бирже
+⋮----
+// 2. Проверяем, есть ли место внутри спреда с учетом округления
+// Место есть, если округленный mid строго больше бида и строго меньше аска
+⋮----
+// 3. Выставляем цену на основе условия
+⋮----
 // ИСПРАВЛЕНИЕ ХИТРОЙ ЛОВУШКИ:
 ⋮----
-// ЕСЛИ ОРДЕРА НЕТ В СТАКАНЕ, НО ОН ПОЛНОСТЬЮ НАЙДЕН В ИСТОРИИ СДЕЛОК (FILLS) - ЭТО УСПЕХ!
+// Ордер не найден ни в стакане, ни в сделках - прерываем его обработку для избежания двойного исполнения
 ⋮----
-// Ордера нет ни в стакане, ни в сделках — только тогда выкидываем ошибку
+// #LB-15 уменьшаем размер Taker-заявки в 2 раза для минимизации потерь от паники на рынке
 ⋮----
 async getPosition(): Promise<boolean>
 ⋮----
@@ -925,103 +1047,12 @@ async cancelAllOpenOrders(
         address: string,
         converter: SymbolConverter,
         MY_COINS: string[]
-): Promise<void>
+    ): Promise<void>
 ⋮----
 // Список ваших активных монет, где могут копиться ордера
 //const MY_COINS = ["BTC", "ETH", "OP", "ARB", "APT", "NEAR", "HYPE", "ZEC"];
 ⋮----
 // Используем уже написанную вами функцию, которая удаляет ордера по списку
-```
-
-## File: config.ts
-```typescript
-import {ethers, getAddress} from 'ethers';
-⋮----
-// Функция-помощник для проверки обязательных переменных
-export const getEnv = (key: string): string =>
-⋮----
-// Задаем список всех поддерживаемых токенов
-export type SupportedToken = 'USDC' | 'OP' | 'ETH' | 'WETH' | 'cbBTC' | 'MAMO' | 'WELL';
-⋮----
-// Описываем структуру для токенов в конкретной сети
-type TokenList = {
-    [K in SupportedToken]?: string;
-};
-⋮----
-// Создаем список сетей в рантайме
-⋮----
-export type ChainType = typeof CHAIN_NAMES[number];
-⋮----
-// Описываем структуру Moonwell
-interface MoonwellConfig {
-    COMPTROLLER: string;
-}
-⋮----
-// Общий интерфейс для настроек конкретной сети
-interface NetworkSettings {
-    ID: string;
-    RPC_URL: string;
-    TOKENS: TokenList;
-    MOONWELL?: MoonwellConfig;
-}
-⋮----
-// Типизируем весь конфиг
-interface AppConfig {
-    TOKEN_DECIMALS:
-    // Делаем все токены из списка необязательными (через знак ?)
-        { [K in SupportedToken]?: number } &
-        // И жестко требуем наличие поля default
-        { default: number } &
-        // Разрешаем ЛЮБОЙ другой строковый ключ со значением number
-        { [key: string]: number };
-    ZEROX_API_KEY: string;
-    NETWORKS: {
-        [key in ChainType]: NetworkSettings;
-    };
-    ABI: {
-        MOONWELL: string[];
-        UNISWAP: string[];
-        ORACLE: string[];
-        UNISWAP_ROUTER: string[];
-        ERC20_BALANCE_ABI: string[];
-        MORPHO: string[];
-    };
-}
-⋮----
-// Делаем все токены из списка необязательными (через знак ?)
-⋮----
-// И жестко требуем наличие поля default
-⋮----
-// Разрешаем ЛЮБОЙ другой строковый ключ со значением number
-⋮----
-RPC_URL: "https://optimism.drpc.org", //getEnv('OPTIMISM_RPC_URL'),
-⋮----
-RPC_URL: 'https://mainnet.base.org', //https://base-rpc.publicnode.com',// getEnv('BASE_RPC_URL'),
-⋮----
-// Добавляем ABI для самих mToken контрактов
-⋮----
-"function borrow(uint256 borrowAmount) external", // borrow
-"function repayBorrow(uint256 repayAmount) external returns (uint256)", // repay
-"function getCash() view returns (uint256)", // Метод получения свободной ликвидности пула
-⋮----
-// Нам нужен стандартный минимальный ABI для работы с ERC-20 токенами
-⋮----
-// Параметры для API
-⋮----
-EthOp005: "0xFC1f3296458F9b2a27a0B91dd7681C4020E09D05", // Пул 0.05%
-EthOp03: "0x68F5C0A2DE713a54991E01858Fd27a3832401849", // Пул 0.3%
-OracleAddress: "0x420000000000000000000000000000000000000F", // Optimism GasPriceOracle
-⋮----
-// Настройки
-⋮----
-export function getMoonwellMarkets(chain: ChainType)
-⋮----
-export interface WalletBalances {
-    [tokenSymbol: string]: {
-        wei: bigint;
-        human: number;
-    };
-}
 ```
 
 ## File: index.ts
@@ -1047,9 +1078,8 @@ return; // Просто гасим ошибку, не давая процесс�
 ⋮----
 async function main()
 ⋮----
-// moonwellPosition // Позиция закрыта
-⋮----
-morphoPosition // Пока не анализируем
+OPT: [/* moonwellPosition // Позиция закрыта */],
+BASE: [morphoPosition /* Пока не анализируем */],
 ⋮----
 let borrowAmount = 0; // подлупка в токенах займа (OP)
 let supplyAmount = 0; // разлупка в токенах займа (OP)
@@ -1061,6 +1091,16 @@ let supplyAmount = 0; // разлупка в токенах займа (OP)
 supplyAmount = 1; // Фейковое значение для HL
 ⋮----
 borrowAmount = 1; // Фейковое значение для HL
+⋮----
+/** LB-18 отлаживаем фиксацию PNL
+                    if (borrowAmount && data.loop) {
+                        await position.loop(borrowAmount, data.loop, data.step ?? 1);
+                    }
+
+                    if (supplyAmount && data.deloop) {
+                        await position.deLoop(supplyAmount, data.deloop, data.step ?? 1);
+                    }
+                    */
 ⋮----
 // await getMoonwellData(); // Общий статус, сколько можно занять в USD
 //await getJumperQuote();

@@ -50,12 +50,8 @@ async function main() {
     const hlPosition = new HLPosition(HL_CHAIN, getProvider(HL_CHAIN));
 
     const positions: Record<ChainType, Position[]> = {
-        OPT: [
-             // moonwellPosition // Позиция закрыта
-        ],
-        BASE: [
-             morphoPosition // Пока не анализируем
-        ],
+        OPT: [/* moonwellPosition // Позиция закрыта */],
+        BASE: [morphoPosition /* Пока не анализируем */],
         HL: [hlPosition]
     };
 
@@ -109,14 +105,14 @@ async function main() {
                         }
                     }
 
-                    if(!data.deloop && !data.loop) {
+                    if (!data.deloop && !data.loop) {
                         console.log("Данные отсутствуют или произошла ошибка (вернулся пустой объект)");
                     }
 
                     console.log(`Имя токена: ${borrowedToken}`);
                     console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
-
+                    /** LB-18 отлаживаем фиксацию PNL
                     if (borrowAmount && data.loop) {
                         await position.loop(borrowAmount, data.loop, data.step ?? 1);
                     }
@@ -124,7 +120,7 @@ async function main() {
                     if (supplyAmount && data.deloop) {
                         await position.deLoop(supplyAmount, data.deloop, data.step ?? 1);
                     }
-
+                    */
 
                 } catch (e) {
                     console.log(e);

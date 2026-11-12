@@ -1088,7 +1088,7 @@ export class HLPosition extends Position {
     }
 
     async getPosition(): Promise<boolean> {
-        super.getPosition();
+        await super.getPosition();
 
         try {
             const [marginRes, spotRes] = await Promise.all([

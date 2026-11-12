@@ -1229,7 +1229,8 @@ export class HLPosition extends Position {
             + `requested positions: ${requestedNotional.toFixed(2)} USDC`
         );
 
-        if (this.availableToTrade >= requestedNotional) {
+        // #LB-18 Умножаем на среднее max плечо 15 всех позиций
+        if (this.availableToTrade * 15 >= requestedNotional) {
             return;
         }
 

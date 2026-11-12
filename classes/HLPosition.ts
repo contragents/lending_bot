@@ -50,6 +50,8 @@ type PerpetualOrderIntent = {
     action: string;
 };
 
+const SHORT_POSITIONS_TO_REALIZE = 3;
+
 type PreparedPerpetualOrder = {
     intent: PerpetualOrderIntent;
     assetId: number;
@@ -1235,45 +1237,47 @@ export class HLPosition extends Position {
             return;
         }
 
-        const shortToRealize = this.accountSnapshot
+        const shortsToRealize = this.accountSnapshot
             .filter(position => Number(position.szi) < 0 && Number(position.leverage.value) > 0)
             .map(position => ({
                 position,
                 pnlPerLeverage: Number(position.unrealizedPnl) / position.leverage.value,
             }))
             .filter(candidate => Number.isFinite(candidate.pnlPerLeverage) && candidate.pnlPerLeverage > 0)
-            .sort((left, right) => right.pnlPerLeverage - left.pnlPerLeverage)[0];
+            .sort((left, right) => right.pnlPerLeverage - left.pnlPerLeverage)
+            .slice(0, step < 2 ? SHORT_POSITIONS_TO_REALIZE : 1);
 
-        if (!shortToRealize) {
+        if (shortsToRealize.length === 0) {
             console.warn("[HL funding] No profitable short position is available for partial realization");
 
             return;
         }
 
-        const {position, pnlPerLeverage} = shortToRealize;
-        const closeSize = Math.abs(Number(position.szi)) * 0.1;
-        console.log(
-            `[HL funding] Partially closing ${position.coin}: ${closeSize} (10%); `
-            + `uPNL/leverage=${pnlPerLeverage.toFixed(6)}`
-        );
-
-        const orderIntent: PerpetualOrderIntent = {
-            coin: position.coin,
-            size: closeSize,
-            isBuy: true,
-            reduceOnly: true,
-            action: "partially closed short to realize uPNL",
-        };
+        const orderIntents: PerpetualOrderIntent[] = [];
+        for (const {position, pnlPerLeverage} of shortsToRealize) {
+            const closeSize = Math.abs(Number(position.szi)) * 0.1;
+            console.log(
+                `[HL funding] Partially closing ${position.coin}: ${closeSize} (10%); `
+                + `uPNL/leverage=${pnlPerLeverage.toFixed(6)}`
+            );
+            orderIntents.push({
+                coin: position.coin,
+                size: closeSize,
+                isBuy: true,
+                reduceOnly: true,
+                action: "partially closed short to realize uPNL",
+            });
+        }
 
         if (step === 5) {
             await this.placePerpetualOrdersMaker(
-                [orderIntent],
+                orderIntents,
                 "HL funding: no partial-close order to place",
                 1
             );
         } else {
             await this.placePerpetualOrders(
-                [orderIntent],
+                orderIntents,
                 "HL funding: no partial-close order to place",
                 step === 1
             );

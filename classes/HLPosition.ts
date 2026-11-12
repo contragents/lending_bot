@@ -907,6 +907,7 @@ export class HLPosition extends Position {
                     }
 
                     if (makerSnapshot) {
+                        // #LB-18 status='perpMarginRejected' - признак нехватки маржи. нужно зафиксировать PNL
                         console.log(`[HL maker] ${coin} status=${makerSnapshot.status}`);
                         if (makerSnapshot.status === "open" || makerSnapshot.status === "triggered") {
                             if (makerOrderId === undefined) {

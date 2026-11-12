@@ -28,7 +28,7 @@ type HyperliquidPositionData = {
 };
 
 type ClearinghouseState = {
-    marginSummary: { accountValue: string };
+    marginSummary: { accountValue: string; totalMarginUsed: string };
     crossMaintenanceMarginUsed: string;
     assetPositions: { position: HyperliquidPositionData }[];
 };
@@ -351,6 +351,7 @@ function isClearinghouseState(value: unknown): value is ClearinghouseState {
     return isRecord(value)
         && isRecord(value.marginSummary)
         && isNumericString(value.marginSummary.accountValue)
+        && isNumericString(value.marginSummary.totalMarginUsed)
         && isNumericString(value.crossMaintenanceMarginUsed)
         && Array.isArray(value.assetPositions)
         && value.assetPositions.every((entry: unknown) =>
@@ -386,6 +387,7 @@ export class HLPosition extends Position {
     static readonly SUPPORTED_CHAINS: ChainType[] = [HL_CHAIN];
 
     protected positionLoaded = false;
+    public availableToTrade = 0;
 
     /**
      * @param amount Количество токена для разлупки
@@ -1105,6 +1107,12 @@ export class HLPosition extends Position {
 
             const usdcSpot = spotRes.balances.find(balance => balance.coin === "USDC");
             const totalUsdcSpotValue = usdcSpot ? Number(usdcSpot.total) : 0;
+            this.availableToTrade = Math.max(
+                0,
+                Number(marginRes.marginSummary.accountValue) - Number(marginRes.marginSummary.totalMarginUsed)
+            );
+            console.log(`Available to Trade: ${this.availableToTrade.toFixed(2)} USDC`);
+
             const positions = marginRes.assetPositions
                 .map(({position}) => position)
                 .filter(position => Number(position.szi) !== 0);

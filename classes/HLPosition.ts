@@ -388,6 +388,7 @@ export class HLPosition extends Position {
 
     protected positionLoaded = false;
     public availableToTrade = 0;
+    public accountSnapshot: HyperliquidPositionData[] = [];
 
     /**
      * @param amount Количество токена для разлупки
@@ -477,11 +478,16 @@ export class HLPosition extends Position {
 
     private async placePerpetualOrdersMaker(
         orderIntents: PerpetualOrderIntent[],
-        emptyMessage: string
+        emptyMessage: string,
+        sizeMultiplier: number = 0.5
     ): Promise<void> {
         if (orderIntents.length === 0) {
             console.log(emptyMessage);
             return;
+        }
+
+        if (!Number.isFinite(sizeMultiplier) || sizeMultiplier <= 0 || sizeMultiplier > 1) {
+            throw new Error(`Invalid Hyperliquid order size multiplier: ${sizeMultiplier}`);
         }
 
         for (const {coin, size} of orderIntents) {
@@ -530,7 +536,7 @@ export class HLPosition extends Position {
                 a: assetId,
                 b: isBuy,
                 p: formatPrice(mid * (isBuy ? 1.01 : 0.99), sizeDecimals),
-                s: formatSize(size / 2, sizeDecimals), // #LB-15 уменьшаем размер Taker-заявки в 2 раза для минимизации потерь от паники на рынке
+                s: formatSize(size * sizeMultiplier, sizeDecimals),
                 r: reduceOnly,
                 t: {limit: {tif: "Ioc" as const}},
                 c: ethers.hexlify(ethers.randomBytes(16)) as `0x${string}`,
@@ -1091,6 +1097,8 @@ export class HLPosition extends Position {
 
     async getPosition(): Promise<boolean> {
         await super.getPosition();
+        this.accountSnapshot = [];
+        this.availableToTrade = 0;
 
         try {
             const [marginRes, spotRes] = await Promise.all([
@@ -1116,6 +1124,7 @@ export class HLPosition extends Position {
             const positions = marginRes.assetPositions
                 .map(({position}) => position)
                 .filter(position => Number(position.szi) !== 0);
+            this.accountSnapshot = positions;
             for (const position of positions) {
                 const side = Number(position.szi) > 0 ? "supply" : "borrow";
                 this.assets[side][position.coin] =
@@ -1183,6 +1192,89 @@ export class HLPosition extends Position {
             console.error("Ошибка при получении позиций Hyperliquid:", error);
 
             return false;
+        }
+    }
+
+    async checkAvailableFunding(
+        instruction: LendingLeverageInstruction,
+        step: number
+    ): Promise<void> {
+        const requestedPositions = [
+            ...Object.entries(instruction.borrow ?? {}),
+            ...Object.entries(instruction.supply ?? {}),
+        ].filter(([coin, size]) =>
+            !coin.trim().toUpperCase().startsWith("USD") && size !== 0
+        );
+
+        if (requestedPositions.length === 0) {
+            return;
+        }
+
+        const transport = new HttpTransport();
+        const info = new InfoClient({transport});
+        const mids = await withRetry(() => info.allMids());
+        const requestedNotional = requestedPositions.reduce((sum, [coin, size]) => {
+            const mid = Number(mids[coin]);
+            if (!Number.isFinite(size) || size < 0) {
+                throw new Error(`Invalid requested Hyperliquid position size for ${coin}: ${size}`);
+            }
+            if (!Number.isFinite(mid) || mid <= 0) {
+                throw new Error(`Missing or invalid Hyperliquid mid price for ${coin}`);
+            }
+            return sum + size * mid;
+        }, 0);
+
+        console.log(
+            `[HL funding] Available to Trade: ${this.availableToTrade.toFixed(2)} USDC; `
+            + `requested positions: ${requestedNotional.toFixed(2)} USDC`
+        );
+
+        if (this.availableToTrade >= requestedNotional) {
+            return;
+        }
+
+        const shortToRealize = this.accountSnapshot
+            .filter(position => Number(position.szi) < 0 && Number(position.leverage.value) > 0)
+            .map(position => ({
+                position,
+                pnlPerLeverage: Number(position.unrealizedPnl) / position.leverage.value,
+            }))
+            .filter(candidate => Number.isFinite(candidate.pnlPerLeverage) && candidate.pnlPerLeverage > 0)
+            .sort((left, right) => right.pnlPerLeverage - left.pnlPerLeverage)[0];
+
+        if (!shortToRealize) {
+            console.warn("[HL funding] No profitable short position is available for partial realization");
+
+            return;
+        }
+
+        const {position, pnlPerLeverage} = shortToRealize;
+        const closeSize = Math.abs(Number(position.szi)) * 0.1;
+        console.log(
+            `[HL funding] Partially closing ${position.coin}: ${closeSize} (10%); `
+            + `uPNL/leverage=${pnlPerLeverage.toFixed(6)}`
+        );
+
+        const orderIntent: PerpetualOrderIntent = {
+            coin: position.coin,
+            size: closeSize,
+            isBuy: true,
+            reduceOnly: true,
+            action: "partially closed short to realize uPNL",
+        };
+
+        if (step === 5) {
+            await this.placePerpetualOrdersMaker(
+                [orderIntent],
+                "HL funding: no partial-close order to place",
+                1
+            );
+        } else {
+            await this.placePerpetualOrders(
+                [orderIntent],
+                "HL funding: no partial-close order to place",
+                step === 1
+            );
         }
     }
 

@@ -113,6 +113,10 @@ async function main() {
                     console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
                     if (borrowAmount && data.loop) {
+                        if (position instanceof HLPosition) {
+                            await position.checkAvailableFunding(data.loop, data.step ?? 1);
+                        }
+
                         await position.loop(borrowAmount, data.loop, data.step ?? 1);
                     }
 

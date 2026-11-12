@@ -112,7 +112,6 @@ async function main() {
                     console.log(`Имя токена: ${borrowedToken}`);
                     console.log(`Количество: ${Math.max(supplyAmount, borrowAmount)}`);
 
-                    /** LB-18 отлаживаем фиксацию PNL
                     if (borrowAmount && data.loop) {
                         await position.loop(borrowAmount, data.loop, data.step ?? 1);
                     }
@@ -120,7 +119,6 @@ async function main() {
                     if (supplyAmount && data.deloop) {
                         await position.deLoop(supplyAmount, data.deloop, data.step ?? 1);
                     }
-                    */
 
                 } catch (e) {
                     console.log(e);
